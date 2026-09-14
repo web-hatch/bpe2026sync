@@ -1,0 +1,523 @@
+// ==========================================================================
+// Barangay Vote Breakdown Controller - Executive Civic Edition
+// Shared standard across BARMM 2026 Platform
+// ==========================================================================
+
+const content = document.querySelector("#barangay-breakdown-content");
+const message = document.querySelector("#breakdown-message");
+const provinceSelect = document.querySelector("#province-select");
+const municipalitySelect = document.querySelector("#municipality-select");
+const searchInput = document.querySelector("#barangay-search");
+const refreshBtn = document.querySelector("#refresh-btn");
+const copyBtn = document.querySelector("#copy-summary-btn");
+const toastContainer = document.querySelector("#toast-container");
+const footerUpdatedTime = document.querySelector("#footer-updated-time");
+
+// Modal elements
+const modalBtn = document.querySelector("#info-modal-btn");
+const modalBackdrop = document.querySelector("#modal-backdrop");
+const modalCloseBtn = document.querySelector("#modal-close-btn");
+const modalCancelBtn = document.querySelector("#modal-cancel-btn");
+const modalSource = document.querySelector("#modal-source");
+const modalFiles = document.querySelector("#modal-files");
+const modalTimestamp = document.querySelector("#modal-timestamp");
+
+let breakdown = [];
+let breakdownFiles = {};
+let searchQuery = "";
+let latestTimestamp = null;
+
+function refreshLucideIcons() {
+  if (typeof window !== "undefined" && window.lucide && typeof window.lucide.createIcons === "function") {
+    window.lucide.createIcons();
+  }
+}
+
+// Global Centralized Toast Notifications
+function showToast(msg, type = "info", duration = 3200) {
+  if (!toastContainer) return;
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.setAttribute("role", "status");
+
+  let iconHtml = "";
+  if (type === "success") {
+    iconHtml = `<i data-lucide="check-circle-2" class="toast-icon"></i>`;
+  } else if (type === "error") {
+    iconHtml = `<i data-lucide="alert-circle" class="toast-icon"></i>`;
+  } else {
+    iconHtml = `<i data-lucide="info" class="toast-icon"></i>`;
+  }
+
+  toast.innerHTML = `${iconHtml}<span>${msg}</span>`;
+  toastContainer.appendChild(toast);
+  refreshLucideIcons();
+
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => toast.classList.add("show"));
+  } else {
+    toast.classList.add("show");
+  }
+  const dismissTimer = setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 350);
+  }, duration);
+
+  toast.addEventListener("click", () => {
+    clearTimeout(dismissTimer);
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 350);
+  });
+}
+window.showGlobalToast = showToast;
+
+function friendlySector(name) {
+  const sectors = ["SETTLER COMMUNITIES", "WOMEN", "YOUTH", "ULAMA", "TRADITIONAL LEADERS"];
+  const found = sectors.find((sector) => name.toUpperCase().includes(sector));
+  if (found) {
+    if (found === "ULAMA") return "The Ulama";
+    if (found === "WOMEN") return "Women";
+    if (found === "YOUTH") return "Youth";
+    if (found === "TRADITIONAL LEADERS") return "Traditional Leaders";
+    if (found === "SETTLER COMMUNITIES") return "Settler Communities";
+  }
+  return name;
+}
+
+function districtOrder(contestName) {
+  const words = { FIRST: 1, SECOND: 2, THIRD: 3, FOURTH: 4, FIFTH: 5, SIXTH: 6, SEVENTH: 7, EIGHTH: 8, NINTH: 9, TENTH: 10 };
+  const match = contestName.toUpperCase().match(/(FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH|SEVENTH|EIGHTH|NINTH|TENTH|\d+)\s+(?:PARLIAMENTARY\s+)?DISTRICT/);
+  return match ? (words[match[1]] || Number(match[1])) : 999;
+}
+
+function formatDistrictTitle(contestName, suffix = "") {
+  const match = contestName.match(/BARMM\s*-\s*([^-]+)\s*-\s*([^-\n]+)/i);
+  if (match) {
+    const province = match[1].trim();
+    const district = match[2].trim()
+      .replace(/PARLIAMENTARY DISTRICT/i, "District")
+      .replace(/FIRST/i, "1st")
+      .replace(/SECOND/i, "2nd")
+      .replace(/THIRD/i, "3rd")
+      .replace(/FOURTH/i, "4th")
+      .replace(/FIFTH/i, "5th")
+      .replace(/SIXTH/i, "6th")
+      .replace(/SEVENTH/i, "7th")
+      .replace(/EIGHTH/i, "8th")
+      .replace(/NINTH/i, "9th");
+    const end = suffix ? ` ${suffix}` : "";
+    return `${province} — ${district}${end}`;
+  }
+  return contestName + (suffix ? ` ${suffix}` : "");
+}
+
+function formatContestTitleHtml(title, categoryKey) {
+  if (categoryKey === "district") {
+    return title.replace(/—\s*(\d+(?:st|nd|rd|th)\s+District)(.*)$/i, '— <span class="group-title-district">$1</span>$2');
+  }
+  return title;
+}
+
+function currentMunicipality() {
+  const prov = breakdown.find((item) => item.province === provinceSelect.value);
+  return prov?.municipalities.find((item) => item.municipality === municipalitySelect.value);
+}
+
+function renderSkeleton() {
+  if (!content) return;
+  content.innerHTML = `
+    <div class="group-card">
+      <div class="table-wrap">
+        <table class="results-table" aria-label="Loading barangay data">
+          <tbody>
+            <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+            <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+            <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+            <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+            <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function makeTableCard(title, categoryKey, rows, barangays, sectorTagText) {
+  const query = searchQuery.trim().toLowerCase();
+  const orderedRows = [...(rows || [])].sort((a, b) => a.contest_name.localeCompare(b.contest_name) || (b.total || 0) - (a.total || 0) || (a.ballot_order || 9999) - (b.ballot_order || 9999));
+
+  const filteredRows = query
+    ? orderedRows.filter(
+        (r) =>
+          r.name.toLowerCase().includes(query) ||
+          (r.contest_name && r.contest_name.toLowerCase().includes(query)) ||
+          (r.contest_name && friendlySector(r.contest_name).toLowerCase().includes(query))
+      )
+    : orderedRows;
+
+  if (filteredRows.length === 0) {
+    if (query) {
+      return null; // Don't render empty cards when searching if no matches
+    }
+    const emptyCard = document.createElement("article");
+    emptyCard.className = "group-card";
+    emptyCard.innerHTML = `
+      <header class="group-card-header">
+        <div class="group-header-info">
+          <span class="group-avatar-badge">${categoryKey === "party_list" ? '<i data-lucide="landmark"></i>' : '<i data-lucide="users"></i>'}</span>
+          <div class="group-title-stack">
+            <div class="group-badge-line">
+              <span class="group-tag ${categoryKey === "party_list" ? "party-tag" : "sector-tag"}">${categoryKey === "party_list" ? "POLITICAL PARTY" : (sectorTagText ? sectorTagText.toUpperCase() : "SECTORAL")}</span>
+            </div>
+            <h3 class="group-card-title">${title}</h3>
+          </div>
+        </div>
+      </header>
+      <div class="empty-row" style="padding: 24px; text-align: center; color: var(--text-muted); font-size: 0.88rem;">No entries found.</div>
+    `;
+    return emptyCard;
+  }
+
+  const totalVotesInGroup = filteredRows.reduce((sum, r) => sum + (r.total || 0), 0);
+  const cardCatClass = categoryKey === "party_list" ? "group-party" : categoryKey === "district" ? "group-district" : "group-sectoral";
+  const avatarIcon = categoryKey === "party_list" ? '<i data-lucide="landmark"></i>' : categoryKey === "district" ? '<i data-lucide="map-pin"></i>' : '<i data-lucide="users"></i>';
+  const tagText = categoryKey === "party_list" ? "POLITICAL PARTY" : categoryKey === "district" ? "DISTRICT" : (sectorTagText ? sectorTagText.toUpperCase() : "SECTORAL REPRESENTATIVES");
+  const tagClass = categoryKey === "party_list" ? "party-tag" : categoryKey === "district" ? "district-tag" : "sector-tag";
+
+  const card = document.createElement("article");
+  card.className = `group-card ${cardCatClass}`;
+  card.innerHTML = `
+    <header class="group-card-header">
+      <div class="group-header-info">
+        <span class="group-avatar-badge">${avatarIcon}</span>
+        <div class="group-title-stack">
+          <div class="group-badge-line">
+            <span class="group-tag ${tagClass}">${tagText}</span>
+          </div>
+          <h3 class="group-card-title">${formatContestTitleHtml(title, categoryKey)}</h3>
+        </div>
+      </div>
+      <div class="group-header-stats">
+        <span class="stat-pill"><i data-lucide="user-check"></i> <strong>${filteredRows.length}</strong> Candidates</span>
+        <span class="stat-pill"><i data-lucide="vote"></i> <strong>${totalVotesInGroup.toLocaleString()}</strong> Votes</span>
+      </div>
+    </header>
+  `;
+
+  const wrap = document.createElement("div");
+  wrap.className = "table-wrap province-table-wrap";
+  const table = document.createElement("table");
+  table.className = "results-table province-results-table";
+
+  // Thead
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+
+  const entryTh = document.createElement("th");
+  entryTh.scope = "col";
+  entryTh.className = "party-col sticky-col";
+  entryTh.textContent = categoryKey === "party_list" ? "Party-List Organization" : "Candidate";
+  headRow.append(entryTh);
+
+  (barangays || []).forEach((b) => {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.className = "province-header-col";
+    th.textContent = b.toUpperCase();
+    headRow.append(th);
+  });
+
+  const totalTh = document.createElement("th");
+  totalTh.scope = "col";
+  totalTh.className = "votes-column total-col-header";
+  totalTh.textContent = "Total Votes";
+  headRow.append(totalTh);
+
+  head.append(headRow);
+  table.append(head);
+
+  // Tbody
+  const body = document.createElement("tbody");
+
+  filteredRows.forEach((entry, idx) => {
+    const row = document.createElement("tr");
+    const nameTd = document.createElement("td");
+    nameTd.className = "party-cell sticky-col";
+
+    const rank = idx + 1;
+    let rankClass = "rank-4plus";
+    if (rank === 1) rankClass = "rank-1";
+    else if (rank === 2) rankClass = "rank-2";
+    else if (rank === 3) rankClass = "rank-3";
+
+    nameTd.innerHTML = `
+      <div class="party-cell-flex">
+        <span class="rank-badge ${rankClass}">${rank}</span>
+        <span class="candidate-name">${entry.name}</span>
+      </div>
+    `;
+    row.append(nameTd);
+
+    (barangays || []).forEach((b) => {
+      const td = document.createElement("td");
+      const v = Number(entry.barangay_votes?.[b] || 0);
+      td.textContent = v > 0 ? v.toLocaleString() : "0";
+      if (v === 0) td.style.color = "var(--text-muted)";
+      row.append(td);
+    });
+
+    const totalTd = document.createElement("td");
+    totalTd.className = "vote-total";
+    totalTd.textContent = Number(entry.total || 0).toLocaleString();
+    row.append(totalTd);
+
+    body.append(row);
+  });
+
+  table.append(body);
+  wrap.append(table);
+  card.append(wrap);
+  return card;
+}
+
+function renderMunicipalityOptions() {
+  const province = breakdown.find((item) => item.province === provinceSelect.value);
+  municipalitySelect.replaceChildren();
+
+  const munis = province?.municipalities || [];
+  munis.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.municipality;
+    option.textContent = item.municipality;
+    municipalitySelect.append(option);
+  });
+
+  // Notify custom dropdown to sync
+  municipalitySelect.dispatchEvent(new Event("change", { bubbles: true }));
+  render();
+}
+
+function render() {
+  const municipality = currentMunicipality();
+  if (!municipality) {
+    if (message) message.textContent = "No municipality data available.";
+    return;
+  }
+
+  content.replaceChildren();
+
+  // 1. Political Party as standalone card
+  const partyRows = [...(municipality.party_list || [])].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999));
+  const partyCard = makeTableCard("Political Party Vote Breakdown", "party_list", partyRows, municipality.barangays);
+  if (partyCard) content.append(partyCard);
+
+  const districtGroups = {};
+  (municipality.district || []).forEach((row) => { (districtGroups[row.contest_name] ||= []).push(row); });
+  Object.keys(districtGroups).sort((a, b) => districtOrder(a) - districtOrder(b) || a.localeCompare(b)).forEach((name) => {
+    const rows = districtGroups[name].sort((a, b) => (b.total || 0) - (a.total || 0) || (a.ballot_order || 9999) - (b.ballot_order || 9999));
+    const card = makeTableCard(formatDistrictTitle(name, "Vote Breakdown"), "district", rows, municipality.barangays, "District");
+    if (card) content.append(card);
+  });
+
+  // 2. Separate Sectoral into standalone cards per sector
+  const sectorGroups = {};
+  const sectorOrder = ["SETTLER COMMUNITIES", "WOMEN", "YOUTH", "ULAMA", "TRADITIONAL LEADERS"];
+
+  (municipality.sectoral || []).forEach((row) => {
+    const sectorTitle = friendlySector(row.contest_name);
+    if (!sectorGroups[sectorTitle]) sectorGroups[sectorTitle] = [];
+    sectorGroups[sectorTitle].push(row);
+  });
+
+  Object.keys(sectorGroups).forEach((name) => {
+    sectorGroups[name].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999));
+  });
+
+  const renderedSectors = new Set();
+  sectorOrder.forEach((sectorKey) => {
+    const friendlyName = friendlySector(sectorKey);
+    if (sectorGroups[friendlyName]) {
+      renderedSectors.add(friendlyName);
+      const card = makeTableCard(`${friendlyName} Breakdown`, "sectoral", sectorGroups[friendlyName], municipality.barangays, friendlyName);
+      if (card) content.append(card);
+    }
+  });
+
+  Object.keys(sectorGroups).forEach((name) => {
+    if (!renderedSectors.has(name)) {
+      const card = makeTableCard(`${name} Breakdown`, "sectoral", sectorGroups[name], municipality.barangays, name);
+      if (card) content.append(card);
+    }
+  });
+
+  if (content.children.length === 0 && searchQuery) {
+    const noMatch = document.createElement("div");
+    noMatch.className = "group-card";
+    noMatch.innerHTML = `<div style="padding: 36px; text-align: center; color: var(--text-muted); font-size: 0.95rem; font-weight: 600;">No candidates or parties match "${searchQuery}".</div>`;
+    content.append(noMatch);
+  }
+
+  const bCount = (municipality.barangays || []).length;
+  const pName = (provinceSelect.value || "").toUpperCase();
+  const mName = municipality.municipality;
+
+  if (message) {
+    message.textContent = `${bCount} barangays in ${mName}, ${pName}.`;
+  }
+
+  refreshLucideIcons();
+}
+
+async function loadProvinceBreakdown(isInitial = false) {
+  const fileKey = provinceSelect.value;
+  const filePath = breakdownFiles[fileKey];
+  if (!filePath) return;
+
+  renderSkeleton();
+
+  try {
+    const response = await fetch(`./${filePath}`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to load the selected province breakdown.");
+    const data = await response.json();
+    breakdown = data.barangay_breakdown || [];
+    latestTimestamp = data.timestamp || new Date().toISOString();
+
+    if (footerUpdatedTime) {
+      footerUpdatedTime.textContent = `Snapshot updated: ${new Date(latestTimestamp).toLocaleString()}`;
+    }
+    if (modalTimestamp) {
+      modalTimestamp.textContent = new Date(latestTimestamp).toLocaleString();
+    }
+
+    renderMunicipalityOptions();
+    if (!isInitial) {
+      showToast(`Loaded ${fileKey.toUpperCase()} barangay returns`, "success");
+    }
+  } catch (error) {
+    if (message) message.textContent = error.message || "Failed to load data.";
+    showToast("Error loading barangay breakdown", "error");
+  }
+}
+
+// Initial Data Boot
+async function init() {
+  renderSkeleton();
+
+  try {
+    const response = await fetch("./data/party-list-totals.json", { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to load initial breakdown index.");
+    const indexData = await response.json();
+    breakdownFiles = indexData.breakdown_files || {};
+
+    provinceSelect.replaceChildren();
+    Object.keys(breakdownFiles).forEach((province) => {
+      const option = document.createElement("option");
+      option.value = province;
+      option.textContent = province.toUpperCase();
+      provinceSelect.append(option);
+    });
+
+    provinceSelect.dispatchEvent(new Event("change", { bubbles: true }));
+
+    provinceSelect.addEventListener("change", () => {
+      loadProvinceBreakdown(false);
+    });
+
+    municipalitySelect.addEventListener("change", () => {
+      render();
+    });
+
+    await loadProvinceBreakdown(true);
+  } catch (error) {
+    if (message) message.textContent = error.message || "Unable to load the barangay breakdown.";
+    showToast("Failed to load initial election data", "error");
+  }
+}
+
+// Search Input Listener
+if (searchInput) {
+  searchInput.addEventListener("input", (e) => {
+    searchQuery = e.target.value;
+    render();
+  });
+}
+
+// Copy Summary Action
+if (copyBtn) {
+  copyBtn.addEventListener("click", async () => {
+    const municipality = currentMunicipality();
+    if (!municipality) {
+      showToast("No data to copy", "error");
+      return;
+    }
+
+    const prov = (provinceSelect.value || "").toUpperCase();
+    const muni = municipality.municipality;
+    const bCount = (municipality.barangays || []).length;
+    const topParty = municipality.party_list?.[0];
+
+    const lines = [
+      "BARMM Parliamentary Election 2026 - Barangay Vote Breakdown",
+      `Province: ${prov}`,
+      `City/Municipality: ${muni}`,
+      `Total Barangays: ${bCount}`,
+      topParty ? `Top Party: ${topParty.name} (${Number(topParty.total || 0).toLocaleString()} votes)` : "",
+      `Generated: ${new Date().toLocaleString()}`,
+      "Source: Official COMELEC Election Returns"
+    ].filter(Boolean);
+
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      showToast("Barangay summary copied to clipboard!", "success");
+    } catch {
+      showToast("Unable to copy to clipboard", "error");
+    }
+  });
+}
+
+// Refresh Data Button with Spinner Feedback
+if (refreshBtn) {
+  refreshBtn.addEventListener("click", async () => {
+    const icon = refreshBtn.querySelector(".btn-icon");
+    if (icon) icon.style.animation = "spin 0.8s linear infinite";
+    refreshBtn.disabled = true;
+
+    try {
+      await loadProvinceBreakdown(false);
+      showToast("Barangay data refreshed successfully!", "success");
+    } catch {
+      showToast("Failed to refresh data", "error");
+    } finally {
+      if (icon) icon.style.animation = "";
+      refreshBtn.disabled = false;
+    }
+  });
+}
+
+// Modal Controls
+function openModal() {
+  if (modalBackdrop) {
+    modalBackdrop.hidden = false;
+    document.body.style.overflow = "hidden";
+  }
+}
+
+function closeModal() {
+  if (modalBackdrop) {
+    modalBackdrop.hidden = true;
+    document.body.style.overflow = "";
+  }
+}
+
+if (modalBtn) modalBtn.addEventListener("click", openModal);
+if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeModal);
+if (modalCancelBtn) modalCancelBtn.addEventListener("click", closeModal);
+if (modalBackdrop) {
+  modalBackdrop.addEventListener("click", (e) => {
+    if (e.target === modalBackdrop) closeModal();
+  });
+}
+
+// Initial Boot
+init();
+refreshLucideIcons();

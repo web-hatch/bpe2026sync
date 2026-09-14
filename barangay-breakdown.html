@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="BARMM Parliamentary Election 2026 - Official Barangay Vote Breakdown" />
+    <title>BARMM Election Results 2026 | Barangay Breakdown</title>
+    <link rel="icon" type="image/png" href="assets/botong-bangsamoro-2026.png" />
+    <link rel="apple-touch-icon" href="assets/botong-bangsamoro-2026.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="assets/lucide.min.js"></script>
+  </head>
+  <body>
+    <!-- Global Centralized Floating Toast Notification Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+    <main class="page-shell">
+      <!-- Top Brand Header Card -->
+      <header class="brand-header-card">
+        <div class="brand-identity">
+          <img class="brand-logo" src="assets/botong-bangsamoro-2026.png" alt="Botong Bangsamoro 2026 Logo" />
+          <div class="brand-titles">
+            <div class="badge-row">
+              <span class="eyebrow-badge">COMELEC JSON Snapshot</span>
+              <span class="live-indicator"><span class="pulse-dot"></span>Barangay Returns</span>
+            </div>
+            <h1 id="page-title">Barangay Vote Breakdown</h1>
+            <p class="brand-subtitle">Party-list and Sectoral Tabulation by Barangay</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button id="refresh-btn" class="btn btn-outline" type="button" title="Reload live snapshot data">
+            <i data-lucide="refresh-cw" class="btn-icon"></i>
+            <span class="btn-text">Refresh Data</span>
+          </button>
+          <button id="info-modal-btn" class="btn btn-secondary" type="button" title="View snapshot source details">
+            <i data-lucide="info" class="btn-icon"></i>
+            <span>Source Info</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Results Section -->
+      <section class="result-section" aria-labelledby="breakdown-title">
+        <div class="section-top-bar">
+          <div class="section-heading-group">
+            <div class="section-badge-row">
+              <span id="cache-status" class="cache-status">
+                <span class="status-dot"></span> Downloaded data
+              </span>
+            </div>
+            <h2 id="breakdown-title" class="section-heading">Votes by Barangay</h2>
+            <p id="breakdown-message" class="result-message" role="status">
+              Loading barangay breakdown...
+            </p>
+          </div>
+          <div class="table-actions">
+            <div class="smooth-dropdown-bar">
+              <div class="smooth-dropdown">
+                <span class="smooth-dropdown-icon"><i data-lucide="map-pin"></i></span>
+                <span class="smooth-dropdown-label">Province</span>
+                <select id="province-select" class="smooth-select" aria-label="Filter by province"></select>
+                <i data-lucide="chevron-down" class="smooth-dropdown-chevron"></i>
+              </div>
+              <div class="smooth-dropdown">
+                <span class="smooth-dropdown-icon" style="background:#eff6ff;color:#2563eb;"><i data-lucide="building-2"></i></span>
+                <span class="smooth-dropdown-label">City/Municipality</span>
+                <select id="municipality-select" class="smooth-select" aria-label="Filter by municipality"></select>
+                <i data-lucide="chevron-down" class="smooth-dropdown-chevron"></i>
+              </div>
+            </div>
+            <div class="search-action-row">
+              <div class="search-box">
+                <i data-lucide="search" class="search-icon"></i>
+                <input type="search" id="barangay-search" placeholder="Search candidate or party..." aria-label="Search candidates" />
+              </div>
+              <button id="copy-summary-btn" class="btn btn-ghost btn-icon-only" type="button" title="Copy results summary to clipboard" aria-label="Copy results summary to clipboard">
+                <i data-lucide="copy" class="btn-icon"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dynamic Separated Groups Container (Standalone Cards per Sector/Party) -->
+        <div id="barangay-breakdown-content" class="groups-container" aria-live="polite">
+          <div class="group-card">
+            <div class="table-wrap">
+              <table class="results-table" aria-label="Loading barangay data">
+                <tbody>
+                  <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="8"><div class="skeleton-bar"></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <footer class="results-footer">
+          <div class="footer-note">
+            <i data-lucide="info" class="info-inline-icon"></i>
+            Totals compiled from official COMELEC precinct election returns.
+          </div>
+          <div class="footer-timestamp" id="footer-updated-time">Checking snapshot...</div>
+        </footer>
+      </section>
+    </main>
+
+    <!-- Source Info & Verification Modal -->
+    <div id="modal-backdrop" class="modal-backdrop" hidden>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <header class="modal-header">
+          <div class="modal-title-wrap">
+            <div class="modal-icon-badge">
+              <i data-lucide="shield-check"></i>
+            </div>
+            <div>
+              <h3 id="modal-title">Snapshot Source & Verification</h3>
+              <p class="modal-subtitle">COMELEC Election Return Data Integrity</p>
+            </div>
+          </div>
+          <button id="modal-close-btn" class="modal-close" type="button" aria-label="Close dialog">&times;</button>
+        </header>
+        <div class="modal-body">
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span class="detail-label">Data Source</span>
+              <span class="detail-val" id="modal-source">Downloaded COMELEC ER JSON</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Processed Returns</span>
+              <span class="detail-val" id="modal-files">5,061 Files</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Snapshot Timestamp</span>
+              <span class="detail-val" id="modal-timestamp">Loading...</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Storage Type</span>
+              <span class="detail-val">Local Static JSON (/data)</span>
+            </div>
+          </div>
+          <p class="modal-text">
+            Official precinct results tabulated across 6 provinces, 116 municipalities, and the Special Geographic Area (SGA).
+          </p>
+        </div>
+        <footer class="modal-footer">
+          <button id="modal-cancel-btn" class="btn btn-outline" type="button">Close</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Floating & Movable AssistiveTouch Widget (Apple AssistiveTouch Style) -->
+    <div id="assistive-widget" class="assistive-widget">
+      <button id="assistive-touch" class="assistive-touch-btn" type="button" aria-label="Open Election Geography Menu" title="Drag anywhere freely, tap to open">
+        <div class="assistive-touch-inner">
+          <img class="assistive-touch-logo" src="assets/botong-bangsamoro-2026.png" alt="Botong Bangsamoro Emblem" draggable="false" />
+        </div>
+      </button>
+
+      <!-- AssistiveTouch Popover Menu -->
+      <div id="assistive-menu" class="assistive-menu" hidden role="dialog" aria-label="Election Navigation Menu">
+        <div class="assistive-menu-header">
+          <div class="assistive-menu-grab-pill"></div>
+          <div class="assistive-header-title-wrap">
+            <span class="assistive-apple-pill"><span class="assistive-apple-pill-dot"></span> ASSISTIVE NAVIGATION</span>
+            <span class="assistive-menu-title">Select Breakdown Level</span>
+          </div>
+        </div>
+        <div class="assistive-menu-list"></div>
+        <div class="assistive-menu-footer">
+          <span class="assistive-tip"><i data-lucide="move"></i> Drag bubble anywhere &bull; Tap level to view</span>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="barangay-breakdown.js"></script>
+    <script type="module" src="smooth-dropdown.js"></script>
+    <script src="assistive-touch.js"></script>
+  </body>
+</html>

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="BARMM Parliamentary Election Results Snapshot 2026" />
+    <title>BARMM Election Results 2026 | Party-list Vote Totals</title>
+    <link rel="icon" type="image/png" href="assets/botong-bangsamoro-2026.png" />
+    <link rel="apple-touch-icon" href="assets/botong-bangsamoro-2026.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="assets/lucide.min.js"></script>
+  </head>
+  <body>
+    <!-- Global Centralized Floating Toast Notification Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+    <main class="page-shell">
+      <!-- Top Brand Header -->
+      <header class="brand-header-card">
+        <div class="brand-identity">
+          <img class="brand-logo" src="assets/botong-bangsamoro-2026.png" alt="Botong Bangsamoro 2026 Logo" />
+          <div class="brand-titles">
+            <div class="badge-row">
+              <span class="eyebrow-badge">COMELEC JSON Snapshot</span>
+              <span class="live-indicator"><span class="pulse-dot"></span>Official Returns</span>
+            </div>
+            <h1 id="page-title">BARMM Election Results 2026</h1>
+            <p class="brand-subtitle">Official Vote Tabulation</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button id="refresh-btn" class="btn btn-outline" type="button" title="Reload live snapshot data">
+            <i data-lucide="refresh-cw" class="btn-icon"></i>
+            <span class="btn-text">Refresh Data</span>
+          </button>
+          <button id="info-modal-btn" class="btn btn-secondary" type="button" title="View snapshot source details">
+            <i data-lucide="info" class="btn-icon"></i>
+            <span>Source Info</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- KPI Metric Cards Grid - Color-themed directly from the Botong Bangsamoro logo -->
+      <section class="kpi-grid" aria-label="Election Key Metrics">
+        <!-- 1. Blue Card: From Logo Fingerprint Emblem -->
+        <article class="kpi-card kpi-blue" id="kpi-returns">
+          <div class="kpi-top">
+            <span class="kpi-label">Registered Voters</span>
+            <span class="kpi-icon-pill" aria-hidden="true">
+              <i data-lucide="users"></i>
+            </span>
+          </div>
+          <div class="kpi-value skeleton skeleton-text" id="kpi-returns-val">...</div>
+          <div class="kpi-subtext" id="kpi-returns-sub">Processed Precincts</div>
+        </article>
+
+        <!-- 2. Gold Card: From Logo Crescent & Star -->
+        <article class="kpi-card kpi-gold" id="kpi-total-votes">
+          <div class="kpi-top">
+            <span class="kpi-label">Total Cast Votes</span>
+            <span class="kpi-icon-pill" aria-hidden="true">
+              <i data-lucide="vote"></i>
+            </span>
+          </div>
+          <div class="kpi-value skeleton skeleton-text" id="kpi-votes-val">...</div>
+          <div class="kpi-subtext" id="kpi-votes-sub">Registered voter turnout</div>
+        </article>
+
+        <!-- 3. Green Card: From Logo Bangsamoro Green Crescent Sash -->
+        <article class="kpi-card kpi-green" id="kpi-leader">
+          <div class="kpi-top">
+            <span class="kpi-label" id="kpi-leader-label">Published ERs</span>
+            <span class="kpi-icon-pill" aria-hidden="true">
+              <i data-lucide="badge-check"></i>
+            </span>
+          </div>
+          <div class="kpi-value skeleton skeleton-text" id="kpi-leader-val">...</div>
+          <div class="kpi-subtext" id="kpi-leader-share">Awaiting calculation</div>
+        </article>
+
+        <!-- 4. Red Card: From Logo Red Ribbon Sash -->
+        <article class="kpi-card kpi-red" id="kpi-parties">
+          <div class="kpi-top">
+            <span class="kpi-label" id="kpi-participants-label">Entries</span>
+            <span class="kpi-icon-pill" aria-hidden="true">
+              <i data-lucide="layers"></i>
+            </span>
+          </div>
+          <div class="kpi-value skeleton skeleton-text" id="kpi-parties-val">...</div>
+          <div class="kpi-subtext" id="kpi-participants-sub">Current view</div>
+        </article>
+      </section>
+
+      <!-- Main Results Section -->
+      <section class="result-section" aria-labelledby="result-title">
+        <!-- Category Navigation Tabs (Sequence: All, Political Party, Sectoral, District Rep) -->
+        <div class="category-nav-wrap">
+          <nav class="category-tabs" id="category-tabs" aria-label="Election Categories">
+            <button type="button" class="tab-btn active" data-cat="all">
+              <i data-lucide="layout-grid" class="tab-icon-lucide"></i> All Contests
+            </button>
+            <button type="button" class="tab-btn" data-cat="party_list">
+              <i data-lucide="landmark" class="tab-icon-lucide"></i> Political Party
+            </button>
+            <button type="button" class="tab-btn" data-cat="sectoral">
+              <i data-lucide="users" class="tab-icon-lucide"></i> Sectoral Representatives
+            </button>
+            <button type="button" class="tab-btn" data-cat="district">
+              <i data-lucide="map-pin" class="tab-icon-lucide"></i> District Representatives
+            </button>
+          </nav>
+        </div>
+
+        <!-- Sub-filter Pills Toolbar (Dynamic for Sectors like Ulama, Youth, etc.) -->
+        <div class="subfilter-toolbar" id="subfilter-toolbar">
+          <div class="subfilter-pills" id="subfilter-pills" aria-label="Sector or District Filter">
+            <!-- Dynamic pills inserted here by JS -->
+          </div>
+          <div class="view-mode-toggle">
+            <label class="toggle-label" title="Group by sector or district with line separators">
+              <input type="checkbox" id="group-toggle" checked />
+              <span class="toggle-slider"></span>
+              <span class="toggle-text">Group by Sector / District</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="section-top-bar">
+          <div>
+            <div class="section-title-wrap">
+              <h2 id="result-title">Sectoral Representatives Vote Totals</h2>
+              <span id="cache-status" class="cache-status">
+                <span class="status-dot"></span> Downloaded data
+              </span>
+            </div>
+            <p id="result-message" class="result-message" role="status">
+              Loading election returns...
+            </p>
+          </div>
+          <div class="table-actions">
+            <div class="search-action-row">
+              <div class="search-box">
+                <i data-lucide="search" class="search-icon"></i>
+                <input type="search" id="party-search" placeholder="Search candidate or sector..." aria-label="Search candidates" />
+              </div>
+              <button id="copy-summary-btn" class="btn btn-ghost btn-icon-only" type="button" title="Copy results summary to clipboard" aria-label="Copy results summary to clipboard">
+                <i data-lucide="copy" class="btn-icon"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dynamic Separated Groups Container (Standalone Cards per Sector/District) -->
+        <div id="groups-container" class="groups-container" aria-live="polite">
+          <div class="group-card">
+            <div class="table-wrap">
+              <table class="results-table" aria-label="Election Results">
+                <thead>
+                  <tr>
+                    <th scope="col" class="rank-col">#</th>
+                    <th scope="col" class="party-col">Candidate</th>
+                    <th scope="col" class="share-col">Vote Share</th>
+                    <th scope="col" class="votes-column">Total Votes</th>
+                  </tr>
+                </thead>
+                <tbody id="party-list-results">
+                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
+                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <footer class="results-footer">
+          <div class="footer-note">
+            <i data-lucide="info" class="info-inline-icon"></i>
+            Totals compiled from official COMELEC precinct election returns.
+          </div>
+          <div class="footer-timestamp" id="footer-updated-time">Checking snapshot...</div>
+        </footer>
+      </section>
+    </main>
+
+    <!-- Source Info & Verification Modal -->
+    <div id="modal-backdrop" class="modal-backdrop" hidden>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <header class="modal-header">
+          <div class="modal-title-wrap">
+            <div class="modal-icon-badge">
+              <i data-lucide="shield-check"></i>
+            </div>
+            <div>
+              <h3 id="modal-title">Snapshot Source & Verification</h3>
+              <p class="modal-subtitle">COMELEC Election Return Data Integrity</p>
+            </div>
+          </div>
+          <button id="modal-close-btn" class="modal-close" type="button" aria-label="Close dialog">&times;</button>
+        </header>
+        <div class="modal-body">
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span class="detail-label">Data Source</span>
+              <span class="detail-val" id="modal-source">Downloaded COMELEC ER JSON</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Processed Returns</span>
+              <span class="detail-val" id="modal-files">Loading...</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Snapshot Timestamp</span>
+              <span class="detail-val" id="modal-timestamp">Loading...</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Storage Type</span>
+              <span class="detail-val">Local Static JSON (/data)</span>
+            </div>
+          </div>
+          <p class="modal-text">
+            This dashboard reads generated contest totals directly from processed precinct election returns without external database latency.
+          </p>
+        </div>
+        <footer class="modal-footer">
+          <button id="modal-cancel-btn" class="btn btn-outline" type="button">Close</button>
+          <button id="modal-save-btn" class="btn btn-primary" type="button">
+            <span class="btn-label">Re-verify Snapshot</span>
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Floating & Movable AssistiveTouch Widget (Apple AssistiveTouch Style) -->
+    <div id="assistive-widget" class="assistive-widget">
+      <!-- Movable Trigger Button (Logo inside circle, drag anywhere freely) -->
+      <button id="assistive-touch" class="assistive-touch-btn" type="button" aria-label="Open Election Geography Menu" title="Drag anywhere freely, tap to open">
+        <div class="assistive-touch-inner">
+          <img class="assistive-touch-logo" src="assets/botong-bangsamoro-2026.png" alt="Botong Bangsamoro Emblem" draggable="false" />
+        </div>
+      </button>
+
+      <!-- AssistiveTouch Popover Menu -->
+      <div id="assistive-menu" class="assistive-menu" hidden role="dialog" aria-label="Election Navigation Menu">
+        <div class="assistive-menu-header">
+          <div class="assistive-menu-grab-pill"></div>
+          <div class="assistive-header-title-wrap">
+            <span class="assistive-apple-pill"><span class="assistive-apple-pill-dot"></span> ASSISTIVE NAVIGATION</span>
+            <span class="assistive-menu-title">Select Breakdown Level</span>
+          </div>
+        </div>
+        <div class="assistive-menu-list"></div>
+        <div class="assistive-menu-footer">
+          <span class="assistive-tip"><i data-lucide="move"></i> Drag bubble anywhere &bull; Tap level to view</span>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+    <script src="assistive-touch.js"></script>
+  </body>
+</html>

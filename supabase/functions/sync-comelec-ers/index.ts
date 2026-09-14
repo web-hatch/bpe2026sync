@@ -1,0 +1,291 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const COMELEC_BASE_URL = "https://barmmpelectionresults.comelec.gov.ph";
+const BUCKET = "comelec-er-json";
+const RETRY_DELAY_MINUTES = 5;
+const RECHECK_MINUTES = 15;
+
+const sourceHeaders = {
+  Accept: "application/json, text/plain, */*",
+  Origin: COMELEC_BASE_URL,
+  Referer: `${COMELEC_BASE_URL}/er-result`,
+  "User-Agent": "Mozilla/5.0 (compatible; BARMM-ER-Sync/1.0)",
+};
+
+type DiscoveryTask = {
+  id: number;
+  task_key: string;
+  task_type: "province" | "municipality" | "barangay";
+  province_code: string;
+  locality_code: string | null;
+  attempts: number;
+};
+
+type ErQueueItem = {
+  precinct_id: string;
+  province_code: string;
+  attempts: number;
+};
+
+const json = (body: unknown, status = 200) => Response.json(body, { status });
+
+function toError(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function getJson(path: string) {
+  const response = await fetch(`${COMELEC_BASE_URL}${path}`, {
+    headers: sourceHeaders,
+  });
+  if (!response.ok)
+    throw new Error(`COMELEC request failed (${response.status}) for ${path}`);
+  return await response.json();
+}
+
+async function sha256(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function retryAt(attempts: number) {
+  return new Date(
+    Date.now() +
+      Math.min(60, RETRY_DELAY_MINUTES * Math.max(1, attempts)) * 60_000,
+  ).toISOString();
+}
+
+async function finishDiscovery(
+  client: ReturnType<typeof createClient>,
+  task: DiscoveryTask,
+  error?: unknown,
+) {
+  const failed = Boolean(error);
+  const patch = failed
+    ? {
+        status: task.attempts >= 4 ? "failed" : "pending",
+        last_error: toError(error),
+        next_attempt_at: retryAt(task.attempts),
+        locked_at: null,
+      }
+    : {
+        status: "done",
+        completed_at: new Date().toISOString(),
+        last_error: null,
+        locked_at: null,
+      };
+  const { error: updateError } = await client
+    .from("comelec_discovery_tasks")
+    .update(patch)
+    .eq("id", task.id);
+  if (updateError) throw updateError;
+}
+
+async function processDiscoveryTask(
+  client: ReturnType<typeof createClient>,
+  task: DiscoveryTask,
+) {
+  try {
+    if (task.task_type === "province") {
+      const data = await getJson(
+        `/data/regions/local/${task.province_code}.json`,
+      );
+      const rows = (data.regions || []).map((region: { code: string }) => ({
+        task_key: `municipality:${task.province_code}:${region.code}`,
+        task_type: "municipality",
+        province_code: task.province_code,
+        locality_code: String(region.code),
+      }));
+      if (rows.length) {
+        const { error } = await client
+          .from("comelec_discovery_tasks")
+          .upsert(rows, { onConflict: "task_key", ignoreDuplicates: true });
+        if (error) throw error;
+      }
+    } else if (task.task_type === "municipality") {
+      const data = await getJson(
+        `/data/regions/local/${task.locality_code}.json`,
+      );
+      const rows = (data.regions || []).map((region: { code: string }) => ({
+        task_key: `barangay:${task.province_code}:${region.code}`,
+        task_type: "barangay",
+        province_code: task.province_code,
+        locality_code: String(region.code),
+      }));
+      if (rows.length) {
+        const { error } = await client
+          .from("comelec_discovery_tasks")
+          .upsert(rows, { onConflict: "task_key", ignoreDuplicates: true });
+        if (error) throw error;
+      }
+    } else {
+      const data = await getJson(
+        `/data/regions/precinct/${task.province_code.slice(0, 2)}/${task.locality_code}.json`,
+      );
+      const rows = (data.regions || []).map((region: { code: string }) => ({
+        precinct_id: String(region.code),
+        province_code: task.province_code,
+      }));
+      if (rows.length) {
+        const { error } = await client
+          .from("comelec_er_queue")
+          .upsert(rows, { onConflict: "precinct_id", ignoreDuplicates: true });
+        if (error) throw error;
+      }
+    }
+    await finishDiscovery(client, task);
+    return { ok: true };
+  } catch (error) {
+    await finishDiscovery(client, task, error);
+    return { ok: false, error: toError(error) };
+  }
+}
+
+async function processEr(
+  client: ReturnType<typeof createClient>,
+  item: ErQueueItem,
+) {
+  const url = `${COMELEC_BASE_URL}/data/er/${item.precinct_id.slice(0, 3)}/${item.precinct_id}.json`;
+  try {
+    const response = await fetch(url, { headers: sourceHeaders });
+    if (!response.ok)
+      throw new Error(`COMELEC ER request failed (${response.status})`);
+    const payload = await response.text();
+    JSON.parse(payload);
+    const contentHash = await sha256(payload);
+    const storagePath = `er/${item.precinct_id.slice(0, 3)}/${item.precinct_id}.json`;
+
+    const { data: existing, error: existingError } = await client
+      .from("comelec_er_queue")
+      .select("content_hash")
+      .eq("precinct_id", item.precinct_id)
+      .single();
+    if (existingError) throw existingError;
+
+    if (existing?.content_hash !== contentHash) {
+      const { error: uploadError } = await client.storage
+        .from(BUCKET)
+        .upload(storagePath, payload, {
+          contentType: "application/json",
+          upsert: true,
+        });
+      if (uploadError) throw uploadError;
+
+      const { error: recordError } = await client
+        .from("comelec_er_records")
+        .upsert({
+          precinct_id: item.precinct_id,
+          content_hash: contentHash,
+          source_url: url,
+          storage_path: storagePath,
+          payload_bytes: new TextEncoder().encode(payload).byteLength,
+          fetched_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      if (recordError) throw recordError;
+    }
+
+    const { error: queueError } = await client
+      .from("comelec_er_queue")
+      .update({
+        status: "ready",
+        content_hash: contentHash,
+        storage_path: storagePath,
+        last_checked_at: new Date().toISOString(),
+        last_downloaded_at:
+          existing?.content_hash === contentHash
+            ? undefined
+            : new Date().toISOString(),
+        next_check_at: new Date(
+          Date.now() + RECHECK_MINUTES * 60_000,
+        ).toISOString(),
+        last_error: null,
+        locked_at: null,
+      })
+      .eq("precinct_id", item.precinct_id);
+    if (queueError) throw queueError;
+    return { changed: existing?.content_hash !== contentHash };
+  } catch (error) {
+    const { error: queueError } = await client
+      .from("comelec_er_queue")
+      .update({
+        status: item.attempts >= 4 ? "failed" : "pending",
+        last_error: toError(error),
+        next_check_at: retryAt(item.attempts),
+        locked_at: null,
+      })
+      .eq("precinct_id", item.precinct_id);
+    if (queueError) throw queueError;
+    return { error: toError(error) };
+  }
+}
+
+Deno.serve(async (request) => {
+  const syncSecret = Deno.env.get("COMELEC_SYNC_SECRET");
+  if (
+    !syncSecret ||
+    request.headers.get("x-comelec-sync-secret") !== syncSecret
+  ) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
+  const projectUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!projectUrl || !serviceRoleKey)
+    return json(
+      { error: "Supabase service credentials are unavailable." },
+      500,
+    );
+  const client = createClient(projectUrl, serviceRoleKey);
+
+  const body =
+    request.method === "POST" ? await request.json().catch(() => ({})) : {};
+  const discoveryLimit = Math.min(
+    Math.max(Number(body.discovery_limit) || 8, 1),
+    20,
+  );
+  const erLimit = Math.min(Math.max(Number(body.er_limit) || 25, 1), 50);
+
+  if (body.enable_schedule === true) {
+    const { error } = await client.rpc("configure_comelec_er_sync_schedule", {
+      p_sync_secret: syncSecret,
+    });
+    if (error) return json({ error: error.message }, 500);
+  }
+
+  await client.rpc("requeue_comelec_discovery_if_due");
+  const { data: discoveryTasks, error: discoveryError } = await client.rpc(
+    "claim_comelec_discovery_tasks",
+    { p_limit: discoveryLimit },
+  );
+  if (discoveryError) return json({ error: discoveryError.message }, 500);
+  const discoveryResults = await Promise.all(
+    (discoveryTasks || []).map((task: DiscoveryTask) =>
+      processDiscoveryTask(client, task),
+    ),
+  );
+
+  const { data: erItems, error: erError } = await client.rpc(
+    "claim_comelec_er_batch",
+    { p_limit: erLimit },
+  );
+  if (erError) return json({ error: erError.message }, 500);
+  const erResults = await Promise.all(
+    (erItems || []).map((item: ErQueueItem) => processEr(client, item)),
+  );
+
+  return json({
+    discovery: {
+      processed: discoveryResults.length,
+      failed: discoveryResults.filter((result) => !result.ok).length,
+    },
+    er: {
+      processed: erResults.length,
+      changed: erResults.filter((result) => result.changed).length,
+      failed: erResults.filter((result) => result.error).length,
+    },
+    schedule_enabled: body.enable_schedule === true,
+  });
+});
