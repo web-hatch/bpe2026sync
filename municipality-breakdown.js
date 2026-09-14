@@ -1,4 +1,6 @@
-// ==========================================================================
+import { loadDashboardSnapshot, loadLiveBreakdown } from "./supabase-dashboard.js";
+
+// ===========================================================================
 // City & Municipality Vote Breakdown Controller - Executive Civic Edition
 // ==========================================================================
 
@@ -30,11 +32,42 @@ const modalTimestamp = document.querySelector("#modal-timestamp");
 let breakdownData = null;
 let breakdownFiles = {};
 let searchQuery = "";
+let usingSupabase = false;
+
+function applyLiveMunicipalityBreakdown(province, data) {
+  const toCategory = (categoryKey) => ({
+    province,
+    municipalities: data.columns || [],
+    entries: (data.rows || [])
+      .filter((row) => row.category_key === categoryKey)
+      .map((row) => ({
+        name: row.name,
+        contest_name: row.contest_name,
+        ballot_order: row.ballot_order,
+        municipality_votes: row.votes,
+        total: row.total,
+      })),
+  });
+  breakdownData = {
+    party_list: [toCategory("party_list")],
+    sectoral: [toCategory("sectoral")],
+    district: [toCategory("district")],
+  };
+}
 
 function refreshLucideIcons() {
   if (typeof window !== "undefined" && window.lucide && typeof window.lucide.createIcons === "function") {
     window.lucide.createIcons();
   }
+}
+
+function firstLiveProvince(snapshot, provinces) {
+  const breakdown = snapshot?.province_breakdown || {};
+  return provinces.find((province) =>
+    ["party_list", "district", "sectoral"].some((category) =>
+      (breakdown[category] || []).some((row) => Number(row.province_votes?.[province]) > 0)
+    )
+  ) || provinces[0];
 }
 
 // Global Centralized Toast
@@ -284,7 +317,7 @@ function renderActiveProvince() {
   const districtGroups = {};
   (district?.entries || []).forEach((row) => { (districtGroups[row.contest_name] ||= []).push(row); });
   Object.keys(districtGroups).sort((a, b) => districtOrder(a) - districtOrder(b) || a.localeCompare(b)).forEach((name) => {
-    const rows = districtGroups[name].sort((a, b) => (b.total || 0) - (a.total || 0) || (a.ballot_order || 9999) - (b.ballot_order || 9999));
+    const rows = districtGroups[name].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999) || a.name.localeCompare(b.name));
     content.append(makeTableCard(formatDistrictTitle(name, "Vote Breakdown"), "district", rows, munis, "District"));
   });
 
@@ -330,17 +363,17 @@ async function loadData(isManual = false) {
   if (kpiContestsVal) kpiContestsVal.classList.add("skeleton");
 
   try {
-    const response = await fetch("./data/party-list-totals.json", { cache: "no-store" });
-    if (!response.ok) throw new Error("Unable to load the city and municipality breakdown.");
-    const fullSnapshot = await response.json();
-
+    const loaded = await loadDashboardSnapshot();
+    const fullSnapshot = loaded.snapshot;
+    usingSupabase = loaded.source === "supabase";
     breakdownFiles = fullSnapshot.breakdown_files || {};
-    if (!Object.keys(breakdownFiles).length) throw new Error("Municipality breakdown files not generated.");
+    const provinces = usingSupabase ? fullSnapshot.province_breakdown?.provinces || [] : Object.keys(breakdownFiles);
+    if (!provinces.length) throw new Error("Municipality breakdown files not generated.");
 
     // Populate province options
     const currentVal = provinceSelect.value;
     provinceSelect.innerHTML = "";
-    Object.keys(breakdownFiles).forEach((province) => {
+    provinces.forEach((province) => {
       const option = document.createElement("option");
       option.value = province;
       option.textContent = province.toUpperCase();
@@ -349,6 +382,8 @@ async function loadData(isManual = false) {
 
     if (currentVal && [...provinceSelect.options].some((o) => o.value === currentVal)) {
       provinceSelect.value = currentVal;
+    } else if (usingSupabase) {
+      provinceSelect.value = firstLiveProvince(fullSnapshot, provinces);
     }
 
     const genDate = fullSnapshot.generated_at ? new Date(fullSnapshot.generated_at).toLocaleString() : "Recent";
@@ -369,6 +404,12 @@ async function loadData(isManual = false) {
 }
 
 async function loadSelectedProvince() {
+  if (usingSupabase) {
+    const province = provinceSelect.value;
+    applyLiveMunicipalityBreakdown(province, await loadLiveBreakdown({ level: "municipality", province }));
+    renderActiveProvince();
+    return;
+  }
   const response = await fetch(`./${breakdownFiles[provinceSelect.value]}`, { cache: "no-store" });
   if (!response.ok) throw new Error("Unable to load the selected province breakdown.");
   breakdownData = (await response.json()).municipality_breakdown;

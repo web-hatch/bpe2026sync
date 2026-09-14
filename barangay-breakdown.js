@@ -1,4 +1,6 @@
-// ==========================================================================
+import { loadDashboardSnapshot, loadLiveBreakdown } from "./supabase-dashboard.js";
+
+// ===========================================================================
 // Barangay Vote Breakdown Controller - Executive Civic Edition
 // Shared standard across BARMM 2026 Platform
 // ==========================================================================
@@ -26,6 +28,42 @@ let breakdown = [];
 let breakdownFiles = {};
 let searchQuery = "";
 let latestTimestamp = null;
+let usingSupabase = false;
+let liveProvince = "";
+let liveMunicipalities = [];
+
+function applyLiveBarangayBreakdown(province, municipality, data) {
+  const categoryRows = (categoryKey) =>
+    (data.rows || [])
+      .filter((row) => row.category_key === categoryKey)
+      .map((row) => ({
+        name: row.name,
+        contest_name: row.contest_name,
+        ballot_order: row.ballot_order,
+        barangay_votes: row.votes,
+        total: row.total,
+      }));
+
+  breakdown = [{
+    province,
+    municipalities: [{
+      municipality,
+      barangays: data.columns || [],
+      party_list: categoryRows("party_list"),
+      sectoral: categoryRows("sectoral"),
+      district: categoryRows("district"),
+    }],
+  }];
+}
+
+function firstLiveProvince(snapshot, provinces) {
+  const breakdown = snapshot?.province_breakdown || {};
+  return provinces.find((province) =>
+    ["party_list", "district", "sectoral"].some((category) =>
+      (breakdown[category] || []).some((row) => Number(row.province_votes?.[province]) > 0)
+    )
+  ) || provinces[0];
+}
 
 function refreshLucideIcons() {
   if (typeof window !== "undefined" && window.lucide && typeof window.lucide.createIcons === "function") {
@@ -144,7 +182,7 @@ function renderSkeleton() {
 
 function makeTableCard(title, categoryKey, rows, barangays, sectorTagText) {
   const query = searchQuery.trim().toLowerCase();
-  const orderedRows = [...(rows || [])].sort((a, b) => a.contest_name.localeCompare(b.contest_name) || (b.total || 0) - (a.total || 0) || (a.ballot_order || 9999) - (b.ballot_order || 9999));
+  const orderedRows = [...(rows || [])].sort((a, b) => a.contest_name.localeCompare(b.contest_name) || (a.ballot_order || 9999) - (b.ballot_order || 9999) || a.name.localeCompare(b.name));
 
   const filteredRows = query
     ? orderedRows.filter(
@@ -282,9 +320,12 @@ function makeTableCard(title, categoryKey, rows, barangays, sectorTagText) {
 
 function renderMunicipalityOptions() {
   const province = breakdown.find((item) => item.province === provinceSelect.value);
+  const currentValue = municipalitySelect.value;
   municipalitySelect.replaceChildren();
 
-  const munis = province?.municipalities || [];
+  const munis = usingSupabase
+    ? liveMunicipalities.map((municipality) => ({ municipality }))
+    : province?.municipalities || [];
   munis.forEach((item) => {
     const option = document.createElement("option");
     option.value = item.municipality;
@@ -292,9 +333,9 @@ function renderMunicipalityOptions() {
     municipalitySelect.append(option);
   });
 
-  // Notify custom dropdown to sync
-  municipalitySelect.dispatchEvent(new Event("change", { bubbles: true }));
-  render();
+  if (currentValue && [...municipalitySelect.options].some((option) => option.value === currentValue)) {
+    municipalitySelect.value = currentValue;
+  }
 }
 
 function render() {
@@ -314,7 +355,7 @@ function render() {
   const districtGroups = {};
   (municipality.district || []).forEach((row) => { (districtGroups[row.contest_name] ||= []).push(row); });
   Object.keys(districtGroups).sort((a, b) => districtOrder(a) - districtOrder(b) || a.localeCompare(b)).forEach((name) => {
-    const rows = districtGroups[name].sort((a, b) => (b.total || 0) - (a.total || 0) || (a.ballot_order || 9999) - (b.ballot_order || 9999));
+    const rows = districtGroups[name].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999) || a.name.localeCompare(b.name));
     const card = makeTableCard(formatDistrictTitle(name, "Vote Breakdown"), "district", rows, municipality.barangays, "District");
     if (card) content.append(card);
   });
@@ -370,6 +411,33 @@ function render() {
 
 async function loadProvinceBreakdown(isInitial = false) {
   const fileKey = provinceSelect.value;
+  if (usingSupabase) {
+    renderSkeleton();
+    try {
+      if (liveProvince !== fileKey) {
+        const index = await loadLiveBreakdown({ level: "municipality", province: fileKey });
+        liveProvince = fileKey;
+        liveMunicipalities = index.columns || [];
+        renderMunicipalityOptions();
+      }
+
+      const municipality = municipalitySelect.value;
+      if (!municipality) throw new Error("No municipality data is available for this province.");
+      const data = await loadLiveBreakdown({ level: "barangay", province: fileKey, municipality });
+      applyLiveBarangayBreakdown(fileKey, municipality, data);
+      latestTimestamp = data.generated_at || new Date().toISOString();
+      if (footerUpdatedTime) footerUpdatedTime.textContent = `Snapshot updated: ${new Date(latestTimestamp).toLocaleString()}`;
+      if (modalTimestamp) modalTimestamp.textContent = new Date(latestTimestamp).toLocaleString();
+      render();
+      if (!isInitial) showToast(`Loaded ${fileKey.toUpperCase()} barangay returns`, "success");
+      return;
+    } catch (error) {
+      if (message) message.textContent = error.message || "Failed to load data.";
+      showToast("Error loading barangay breakdown", "error");
+      return;
+    }
+  }
+
   const filePath = breakdownFiles[fileKey];
   if (!filePath) return;
 
@@ -404,18 +472,21 @@ async function init() {
   renderSkeleton();
 
   try {
-    const response = await fetch("./data/party-list-totals.json", { cache: "no-store" });
-    if (!response.ok) throw new Error("Unable to load initial breakdown index.");
-    const indexData = await response.json();
+    const loaded = await loadDashboardSnapshot();
+    const indexData = loaded.snapshot;
+    usingSupabase = loaded.source === "supabase";
     breakdownFiles = indexData.breakdown_files || {};
+    const provinces = usingSupabase ? indexData.province_breakdown?.provinces || [] : Object.keys(breakdownFiles);
 
     provinceSelect.replaceChildren();
-    Object.keys(breakdownFiles).forEach((province) => {
+    provinces.forEach((province) => {
       const option = document.createElement("option");
       option.value = province;
       option.textContent = province.toUpperCase();
       provinceSelect.append(option);
     });
+
+    if (usingSupabase) provinceSelect.value = firstLiveProvince(indexData, provinces);
 
     provinceSelect.dispatchEvent(new Event("change", { bubbles: true }));
 
@@ -424,7 +495,8 @@ async function init() {
     });
 
     municipalitySelect.addEventListener("change", () => {
-      render();
+      if (usingSupabase) loadProvinceBreakdown(false);
+      else render();
     });
 
     await loadProvinceBreakdown(true);

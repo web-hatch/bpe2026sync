@@ -168,7 +168,7 @@
           const isTargetActive = (currentPage === targetItem.page) || (targetItem.page === "index.html" && currentPage === "");
 
           if (!isTargetActive) {
-            window.location.href = targetItem.page;
+            window.location.assign(new URL(targetItem.page, window.location.href).href);
           } else {
             if (targetItem.id === "overview") {
               const allTab = document.querySelector('.tab-btn[data-cat="all"]');
@@ -358,13 +358,10 @@
     assistiveTouchBtn.addEventListener("pointerup", endDrag);
     assistiveTouchBtn.addEventListener("pointercancel", endDrag);
 
-    // Click handler for assistiveTouchBtn
+    // Pointer-up is the single tap handler. A following click must not toggle again.
     assistiveTouchBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (!hasMoved) {
-        safeToggleAssistiveMenu();
-      }
     });
 
     // Prevent native touch scrolling when touching or dragging the assistive touch button

@@ -3,3 +3,9 @@ verify_jwt = false
 
 [functions.sync-comelec-ers]
 verify_jwt = false
+
+[functions.get-comelec-breakdown]
+verify_jwt = false
+
+[functions.get-comelec-snapshot]
+verify_jwt = false

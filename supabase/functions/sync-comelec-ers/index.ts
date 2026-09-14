@@ -4,6 +4,16 @@ const COMELEC_BASE_URL = "https://barmmpelectionresults.comelec.gov.ph";
 const BUCKET = "comelec-er-json";
 const RETRY_DELAY_MINUTES = 5;
 const RECHECK_MINUTES = 15;
+const PUBLISH_INTERVAL_MINUTES = 5;
+
+const provinceLabels: Record<string, string> = {
+  "0700000": "Basilan",
+  "3600000": "Lanao del Sur",
+  "7000000": "Maguindanao del Norte",
+  "8700000": "Maguindanao del Sur",
+  "8800000": "Special Geographic Area",
+  "9900000": "Tawi-Tawi",
+};
 
 const sourceHeaders = {
   Accept: "application/json, text/plain, */*",
@@ -25,6 +35,29 @@ type ErQueueItem = {
   precinct_id: string;
   province_code: string;
   attempts: number;
+};
+
+type OfficialEr = {
+  information?: {
+    location?: string;
+    numberOfActuallyVoters?: number | string;
+    numberOfRegisteredVoters?: number | string;
+  };
+  local?: Array<{
+    contestName?: string;
+    candidates?: {
+      candidates?: Array<{ name?: string; votes?: number | string }>;
+    };
+  }>;
+};
+
+type ErEntry = {
+  precinct_id: string;
+  category_key: "party_list" | "sectoral" | "district";
+  contest_name: string;
+  candidate_name: string;
+  ballot_order: number;
+  votes: number;
 };
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
@@ -55,6 +88,58 @@ function retryAt(attempts: number) {
     Date.now() +
       Math.min(60, RETRY_DELAY_MINUTES * Math.max(1, attempts)) * 60_000,
   ).toISOString();
+}
+
+function toNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function categoryForContest(
+  contestName: string,
+): ErEntry["category_key"] | null {
+  if (contestName === "BARMM REGIONAL PARLIAMENTARY POLITICAL PARTY")
+    return "party_list";
+  if (contestName.startsWith("PARLIAMENTARY SECTORAL REPRESENTATIVE"))
+    return "sectoral";
+  if (contestName.startsWith("LEGISLATIVE DISTRICT REPRESENTATIVE"))
+    return "district";
+  return null;
+}
+
+function parseOfficialEr(payload: OfficialEr, item: ErQueueItem) {
+  const location = String(payload.information?.location || "");
+  const locationParts = location.split(",").map((part) => part.trim());
+  const entries: ErEntry[] = [];
+
+  for (const contest of payload.local || []) {
+    const contestName = String(contest.contestName || "").trim();
+    const category = categoryForContest(contestName);
+    if (!category) continue;
+
+    for (const candidate of contest.candidates?.candidates || []) {
+      const rawName = String(candidate.name || "").trim();
+      if (!rawName) continue;
+      const ballotMatch = rawName.match(/^(\d+)\.\s*/);
+      entries.push({
+        precinct_id: item.precinct_id,
+        category_key: category,
+        contest_name: contestName,
+        candidate_name: rawName.replace(/^\d+\.\s*/, "").trim(),
+        ballot_order: ballotMatch ? Number(ballotMatch[1]) : 9999,
+        votes: toNumber(candidate.votes),
+      });
+    }
+  }
+
+  return {
+    entries,
+    province: provinceLabels[item.province_code] || "Unknown Province",
+    municipality: locationParts[2] || "Unknown Municipality",
+    barangay: locationParts[3] || "Unknown Barangay",
+    castVotes: toNumber(payload.information?.numberOfActuallyVoters),
+    registeredVoters: toNumber(payload.information?.numberOfRegisteredVoters),
+  };
 }
 
 async function finishDiscovery(
@@ -153,7 +238,8 @@ async function processEr(
     if (!response.ok)
       throw new Error(`COMELEC ER request failed (${response.status})`);
     const payload = await response.text();
-    JSON.parse(payload);
+    const officialEr = JSON.parse(payload) as OfficialEr;
+    const parsedEr = parseOfficialEr(officialEr, item);
     const contentHash = await sha256(payload);
     const storagePath = `er/${item.precinct_id.slice(0, 3)}/${item.precinct_id}.json`;
 
@@ -181,10 +267,28 @@ async function processEr(
           source_url: url,
           storage_path: storagePath,
           payload_bytes: new TextEncoder().encode(payload).byteLength,
+          province: parsedEr.province,
+          municipality: parsedEr.municipality,
+          barangay: parsedEr.barangay,
+          cast_votes: parsedEr.castVotes,
+          registered_voters: parsedEr.registeredVoters,
           fetched_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
       if (recordError) throw recordError;
+
+      const { error: deleteError } = await client
+        .from("comelec_er_entries")
+        .delete()
+        .eq("precinct_id", item.precinct_id);
+      if (deleteError) throw deleteError;
+
+      if (parsedEr.entries.length) {
+        const { error: entriesError } = await client
+          .from("comelec_er_entries")
+          .insert(parsedEr.entries);
+        if (entriesError) throw entriesError;
+      }
     }
 
     const { error: queueError } = await client
@@ -220,6 +324,62 @@ async function processEr(
     if (queueError) throw queueError;
     return { error: toError(error) };
   }
+}
+
+async function publishDashboardIfDue(
+  client: ReturnType<typeof createClient>,
+  changedCount: number,
+) {
+  if (!changedCount) return false;
+
+  const { data: state, error: stateError } = await client
+    .from("comelec_publication_state")
+    .select("last_attempted_at")
+    .eq("id", true)
+    .single();
+  if (stateError) throw stateError;
+
+  const lastAttempted = state?.last_attempted_at
+    ? new Date(state.last_attempted_at).getTime()
+    : 0;
+  if (Date.now() - lastAttempted < PUBLISH_INTERVAL_MINUTES * 60_000)
+    return false;
+
+  const { error: attemptError } = await client
+    .from("comelec_publication_state")
+    .update({
+      last_attempted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", true);
+  if (attemptError) throw attemptError;
+
+  const { data: snapshot, error: snapshotError } = await client.rpc(
+    "comelec_dashboard_root",
+  );
+  if (snapshotError) throw snapshotError;
+  if (!snapshot?.complete) return false;
+
+  const { error: uploadError } = await client.storage
+    .from("comelec-dashboard-public")
+    .upload("dashboard-snapshot.json", JSON.stringify(snapshot), {
+      contentType: "application/json",
+      cacheControl: "60",
+      upsert: true,
+    });
+  if (uploadError) throw uploadError;
+
+  const { error: updateError } = await client
+    .from("comelec_publication_state")
+    .update({
+      last_published_at: new Date().toISOString(),
+      last_attempted_at: new Date().toISOString(),
+      published_returns: snapshot.processed_files,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", true);
+  if (updateError) throw updateError;
+  return true;
 }
 
 Deno.serve(async (request) => {
@@ -275,6 +435,8 @@ Deno.serve(async (request) => {
   const erResults = await Promise.all(
     (erItems || []).map((item: ErQueueItem) => processEr(client, item)),
   );
+  const changedCount = erResults.filter((result) => result.changed).length;
+  const published = await publishDashboardIfDue(client, changedCount);
 
   return json({
     discovery: {
@@ -283,9 +445,10 @@ Deno.serve(async (request) => {
     },
     er: {
       processed: erResults.length,
-      changed: erResults.filter((result) => result.changed).length,
+      changed: changedCount,
       failed: erResults.filter((result) => result.error).length,
     },
+    published,
     schedule_enabled: body.enable_schedule === true,
   });
 });

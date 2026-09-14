@@ -1,4 +1,6 @@
-// ==========================================================================
+import { loadDashboardSnapshot } from "./supabase-dashboard.js";
+
+// ===========================================================================
 // BARMM Election Results 2026 - Grouped Sectors & Districts
 // ==========================================================================
 
@@ -37,7 +39,7 @@ const modalTimestamp = $("#modal-timestamp");
 
 // Application State
 let snapshot = null;
-let currentCategory = "all"; // Sequence: all, Political Party, sectoral, district rep
+let currentCategory = "all"; // Sequence: all, Political Party, district rep, sectoral
 let currentSubfilter = "all";
 let isGrouped = true;
 let isProvinceBreakdown = false;
@@ -206,7 +208,7 @@ function getAllContests() {
           friendly_name: getFriendlyContestName(contest.contest_name, catKey),
           candidates: Array.isArray(contest.candidates)
             ? [...contest.candidates]
-                .sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999) || (b.votes ?? 0) - (a.votes ?? 0))
+                .sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0) || (a.ballot_order || 9999) - (b.ballot_order || 9999))
                 .map((cand, idx) => ({ ...cand, rank: idx + 1 }))
             : []
         });
@@ -223,6 +225,8 @@ const SECTOR_ORDER = [
   "ULAMA",
   "TRADITIONAL LEADERS"
 ];
+
+const CATEGORY_ORDER = ["party_list", "sectoral", "district"];
 
 function getSectorOrderIndex(contestName) {
   const upper = contestName.toUpperCase();
@@ -264,6 +268,8 @@ function getContestsForActiveCategory() {
 
   // Apply requested sequence for Sectoral contests: Settler, Women, Youth, Ulama, Traditional Leaders
   filtered.sort((a, b) => {
+    const categoryDifference = CATEGORY_ORDER.indexOf(a.categoryKey) - CATEGORY_ORDER.indexOf(b.categoryKey);
+    if (categoryDifference) return categoryDifference;
     if (a.categoryKey === "sectoral" && b.categoryKey === "sectoral") {
       return getSectorOrderIndex(a.contest_name) - getSectorOrderIndex(b.contest_name);
     }
@@ -618,14 +624,16 @@ function renderProvinceBreakdown() {
   if (!data || !groupsContainer) return;
   const query = searchInput?.value.trim().toLowerCase() || "";
   const matchesQuery = (entry) => entry.name.toLowerCase().includes(query) || entry.contest_name.toLowerCase().includes(query);
-  const partyRows = [...(data.party_list || [])].filter(matchesQuery).sort((a, b) => (b.total || 0) - (a.total || 0));
-  const sectoralRows = [...(data.sectoral || [])].filter(matchesQuery).sort((a, b) => (b.total || 0) - (a.total || 0));
+  const partyRows = [...(data.party_list || [])].filter(matchesQuery).sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999));
+  const districtRows = [...(data.district || [])].filter(matchesQuery).sort((a, b) => a.contest_name.localeCompare(b.contest_name) || (a.ballot_order || 9999) - (b.ballot_order || 9999));
+  const sectoralRows = [...(data.sectoral || [])].filter(matchesQuery).sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999));
   const provinces = data.provinces || [];
 
   resultTitle.textContent = "Province Vote Breakdown";
   resultMessage.textContent = "Party-list and sectoral votes by province from published election returns.";
   groupsContainer.replaceChildren();
   renderProvinceMatrix("Political Party", partyRows, provinces, false);
+  renderProvinceMatrix("District Representatives", districtRows, provinces, true);
   renderProvinceMatrix("Sectoral Representatives", sectoralRows, provinces, true);
   refreshLucideIcons();
 }
@@ -667,9 +675,7 @@ function createCandidateRow(cand, rank, share, subtitleContest) {
 async function loadSnapshot(isManual = false) {
   setSkeletonLoading(true);
   try {
-    const response = await fetch("./data/party-list-totals.json", { cache: "no-store" });
-    if (!response.ok) throw new Error("Unable to load downloaded election results.");
-    snapshot = await response.json();
+    ({ snapshot } = await loadDashboardSnapshot());
 
     setSkeletonLoading(false);
 

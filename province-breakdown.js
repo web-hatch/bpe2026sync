@@ -1,4 +1,6 @@
-// ==========================================================================
+import { loadDashboardSnapshot } from "./supabase-dashboard.js";
+
+// ===========================================================================
 // Province Vote Breakdown Controller - Executive Civic Edition
 // ==========================================================================
 
@@ -82,6 +84,23 @@ function friendlySector(contestName) {
   return contestName;
 }
 
+function districtOrder(contestName) {
+  const words = { FIRST: 1, SECOND: 2, THIRD: 3, FOURTH: 4, FIFTH: 5, SIXTH: 6, SEVENTH: 7, EIGHTH: 8, NINTH: 9, TENTH: 10 };
+  const match = contestName.toUpperCase().match(/(FIRST|SECOND|THIRD|FOURTH|FIFTH|SIXTH|SEVENTH|EIGHTH|NINTH|TENTH|\d+)\s+(?:PARLIAMENTARY\s+)?DISTRICT/);
+  return match ? (words[match[1]] || Number(match[1])) : 999;
+}
+
+function formatDistrictTitle(contestName) {
+  const match = contestName.match(/BARMM\s*-\s*([^-]+)\s*-\s*([^\n]+)/i);
+  if (!match) return contestName;
+  const district = match[2].trim()
+    .replace(/PARLIAMENTARY DISTRICT/i, "District")
+    .replace(/FIRST/i, "1st").replace(/SECOND/i, "2nd").replace(/THIRD/i, "3rd")
+    .replace(/FOURTH/i, "4th").replace(/FIFTH/i, "5th").replace(/SIXTH/i, "6th")
+    .replace(/SEVENTH/i, "7th").replace(/EIGHTH/i, "8th").replace(/NINTH/i, "9th");
+  return `${match[1].trim()} - ${district}`;
+}
+
 function makeTableCard(title, categoryKey, rows, provinces, sectorTagText = "") {
   const query = searchQuery.trim().toLowerCase();
   const filteredRows = query
@@ -106,10 +125,10 @@ function makeTableCard(title, categoryKey, rows, provinces, sectorTagText = "") 
   }
 
   const totalVotesInGroup = filteredRows.reduce((sum, r) => sum + (r.total || 0), 0);
-  const cardCatClass = categoryKey === "party_list" ? "group-party" : "group-sectoral";
-  const avatarIcon = categoryKey === "party_list" ? '<i data-lucide="landmark"></i>' : '<i data-lucide="users"></i>';
-  const tagText = categoryKey === "party_list" ? "POLITICAL PARTY" : (sectorTagText ? sectorTagText.toUpperCase() : "SECTOR");
-  const tagClass = categoryKey === "party_list" ? "party-tag" : "sector-tag";
+  const cardCatClass = categoryKey === "party_list" ? "group-party" : categoryKey === "district" ? "group-district" : "group-sectoral";
+  const avatarIcon = categoryKey === "party_list" ? '<i data-lucide="landmark"></i>' : categoryKey === "district" ? '<i data-lucide="map-pin"></i>' : '<i data-lucide="users"></i>';
+  const tagText = categoryKey === "party_list" ? "POLITICAL PARTY" : categoryKey === "district" ? "DISTRICT" : (sectorTagText ? sectorTagText.toUpperCase() : "SECTOR");
+  const tagClass = categoryKey === "party_list" ? "party-tag" : categoryKey === "district" ? "district-tag" : "sector-tag";
 
   const card = document.createElement("article");
   card.className = `group-card ${cardCatClass}`;
@@ -214,11 +233,21 @@ function renderAllTables() {
   content.replaceChildren();
 
   // 1. Render Political Party as its own standalone card
-  const partyRows = [...(breakdown.party_list || [])].sort((a, b) => (b.total || 0) - (a.total || 0) || (a.ballot_order || 9999) - (b.ballot_order || 9999));
+  const partyRows = [...(breakdown.party_list || [])].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999) || a.name.localeCompare(b.name));
   const partyCard = makeTableCard("Political Party Vote Breakdown", "party_list", partyRows, breakdown.provinces);
   content.append(partyCard);
 
-  // 2. Separate Sectoral into standalone cards per sector
+  // 2. District Representatives, ordered by district number.
+  const districtGroups = {};
+  (breakdown.district || []).forEach((row) => { (districtGroups[row.contest_name] ||= []).push(row); });
+  Object.keys(districtGroups)
+    .sort((a, b) => districtOrder(a) - districtOrder(b) || a.localeCompare(b))
+    .forEach((name) => {
+      const rows = districtGroups[name].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999));
+      content.append(makeTableCard(`${formatDistrictTitle(name)} Vote Breakdown`, "district", rows, breakdown.provinces, "District"));
+    });
+
+  // 3. Separate Sectoral into standalone cards per sector
   const sectorGroups = {};
   const sectorOrder = ["SETTLER COMMUNITIES", "WOMEN", "YOUTH", "ULAMA", "TRADITIONAL LEADERS"];
 
@@ -229,7 +258,7 @@ function renderAllTables() {
   });
 
   Object.keys(sectorGroups).forEach((name) => {
-    sectorGroups[name].sort((a, b) => (b.total || 0) - (a.total || 0) || (a.ballot_order || 9999) - (b.ballot_order || 9999));
+    sectorGroups[name].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999) || a.name.localeCompare(b.name));
   });
 
   const renderedSectors = new Set();
@@ -259,17 +288,16 @@ async function loadData(isManual = false) {
   if (kpiContestsVal) kpiContestsVal.classList.add("skeleton");
 
   try {
-    const response = await fetch("./data/party-list-totals.json", { cache: "no-store" });
-    if (!response.ok) throw new Error("Unable to load the provincial election snapshot.");
-    snapshotData = await response.json();
+    ({ snapshot: snapshotData } = await loadDashboardSnapshot());
 
     const breakdown = snapshotData.province_breakdown;
     const provinces = breakdown?.provinces || [];
 
     // Calculate total provincial votes
     let totalProvVotes = 0;
-    (breakdown.party_list || []).forEach((r) => (totalProvVotes += r.total || 0));
-    (breakdown.sectoral || []).forEach((r) => (totalProvVotes += r.total || 0));
+  (breakdown.party_list || []).forEach((r) => (totalProvVotes += r.total || 0));
+  (breakdown.district || []).forEach((r) => (totalProvVotes += r.total || 0));
+  (breakdown.sectoral || []).forEach((r) => (totalProvVotes += r.total || 0));
 
     // Populate KPI Cards
     if (kpiProvincesVal) {
@@ -295,7 +323,7 @@ async function loadData(isManual = false) {
     if (modalFiles) modalFiles.textContent = `${(snapshotData.processed_files || 0).toLocaleString()} returns`;
     if (modalTimestamp) modalTimestamp.textContent = genDate;
 
-    message.textContent = `${(snapshotData.processed_files || 0).toLocaleString()} published election returns tabulated across ${provinces.length} provinces.`;
+    message.textContent = `${(snapshotData.processed_files || 0).toLocaleString()} election returns tabulated across ${provinces.length} provinces.`;
 
     renderAllTables();
 
