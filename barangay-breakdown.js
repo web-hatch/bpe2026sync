@@ -254,7 +254,7 @@ function makeTableCard(title, categoryKey, rows, barangays, sectorTagText) {
   const entryTh = document.createElement("th");
   entryTh.scope = "col";
   entryTh.className = "party-col sticky-col";
-  entryTh.textContent = categoryKey === "party_list" ? "Party-List Organization" : "Candidate";
+  entryTh.textContent = "Candidate / Party";
   headRow.append(entryTh);
 
   (barangays || []).forEach((b) => {
