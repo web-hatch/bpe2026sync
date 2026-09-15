@@ -11,7 +11,8 @@ export function initSmoothDropdown(dropdownEl) {
 
   dropdownEl.dataset.smoothDropdownInitialized = "true";
 
-  const isProvince = select.id === "province-select" || dropdownEl.dataset.type === "province" || dropdownEl.querySelector(".smooth-dropdown-label")?.textContent.toLowerCase().includes("province");
+  const labelText = dropdownEl.querySelector(".smooth-dropdown-label")?.textContent || "";
+  const isProvince = select.id === "province-select" || dropdownEl.dataset.type === "province" || labelText.toLowerCase().includes("province");
   if (isProvince) {
     dropdownEl.setAttribute("data-type", "province");
   }

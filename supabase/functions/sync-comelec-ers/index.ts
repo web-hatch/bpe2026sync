@@ -416,6 +416,7 @@ Deno.serve(async (request) => {
   }
 
   await client.rpc("requeue_comelec_discovery_if_due");
+  await client.rpc("requeue_failed_comelec_ers_if_due");
   const { data: discoveryTasks, error: discoveryError } = await client.rpc(
     "claim_comelec_discovery_tasks",
     { p_limit: discoveryLimit },

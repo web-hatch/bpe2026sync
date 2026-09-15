@@ -8,7 +8,6 @@ const content = document.querySelector("#election-return-content");
 const message = document.querySelector("#breakdown-message");
 const provinceSelect = document.querySelector("#province-select");
 const municipalitySelect = document.querySelector("#municipality-select");
-const barangaySelect = document.querySelector("#barangay-select");
 const searchInput = document.querySelector("#er-search");
 const refreshBtn = document.querySelector("#refresh-btn");
 const copyBtn = document.querySelector("#copy-summary-btn");
@@ -42,10 +41,9 @@ let searchQuery = "";
 let usingSupabase = false;
 let liveProvince = "";
 let liveMunicipalities = [];
-let liveBarangays = [];
-
-function applyLiveElectionReturnBreakdown(province, municipality, barangay, data) {
-  const categoryRows = (categoryKey) =>
+function applyLiveElectionReturnBreakdown(province, municipality, returns) {
+  const toBarangay = ({ barangay, data }) => {
+    const categoryRows = (categoryKey) =>
     (data.rows || [])
       .filter((row) => row.category_key === categoryKey)
       .map((row) => ({
@@ -56,17 +54,20 @@ function applyLiveElectionReturnBreakdown(province, municipality, barangay, data
         total: row.total,
       }));
 
+    return {
+      barangay,
+      precincts: data.columns || [],
+      party_list: categoryRows("party_list"),
+      sectoral: categoryRows("sectoral"),
+      district: categoryRows("district"),
+    };
+  };
+
   breakdown = [{
     province,
     municipalities: [{
       municipality,
-      barangays: [{
-        barangay,
-        precincts: data.columns || [],
-        party_list: categoryRows("party_list"),
-        sectoral: categoryRows("sectoral"),
-        district: categoryRows("district"),
-      }],
+      barangays: returns.map(toBarangay),
     }],
   }];
 }
@@ -369,25 +370,8 @@ function render() {
   const activeMuni = getActiveMunicipality();
   if (!activeMuni || !content) return;
 
-  const barangays = activeMuni.barangays || [];
-  const selectedBarangayVal = barangaySelect?.value;
-
-  let activeBarangays = [];
-  let displayBarangayName = "";
-
-  if (selectedBarangayVal && selectedBarangayVal !== "__ALL__") {
-    const found = barangays.find((b) => b.barangay === selectedBarangayVal);
-    if (found) {
-      activeBarangays = [found];
-      displayBarangayName = found.barangay;
-    } else {
-      activeBarangays = barangays;
-      displayBarangayName = `All ${barangays.length} Barangays`;
-    }
-  } else {
-    activeBarangays = barangays;
-    displayBarangayName = `All ${barangays.length} Barangays`;
-  }
+  const activeBarangays = activeMuni.barangays || [];
+  const displayBarangayName = `All ${activeBarangays.length} Barangays`;
 
   const precinctCount = activeBarangays.reduce((sum, b) => sum + b.precincts.length, 0);
 
@@ -469,42 +453,6 @@ function render() {
   refreshLucideIcons();
 }
 
-function updateBarangays() {
-  if (!barangaySelect) {
-    if (!usingSupabase) render();
-    return;
-  }
-
-  const currentVal = barangaySelect.value;
-  barangaySelect.replaceChildren();
-
-  const activeMuni = getActiveMunicipality();
-  const barangays = usingSupabase
-    ? liveBarangays.map((barangay) => ({ barangay }))
-    : activeMuni?.barangays || [];
-  if (barangays.length > 1) {
-    const allOpt = document.createElement("option");
-    allOpt.value = "__ALL__";
-    allOpt.textContent = `All Barangays (${barangays.length})`;
-    barangaySelect.append(allOpt);
-  }
-
-  barangays.forEach((b) => {
-    const opt = document.createElement("option");
-    opt.value = b.barangay;
-    opt.textContent = b.barangay;
-    barangaySelect.append(opt);
-  });
-
-  if (currentVal && Array.from(barangaySelect.options).some((o) => o.value === currentVal)) {
-    barangaySelect.value = currentVal;
-  } else if (barangays.length > 0) {
-    barangaySelect.value = barangays[0].barangay;
-  }
-
-  if (!usingSupabase) render();
-}
-
 function updateMunicipalities() {
   const prov = breakdown.find((item) => item.province === provinceSelect.value);
   const currentVal = municipalitySelect.value;
@@ -524,7 +472,7 @@ function updateMunicipalities() {
     municipalitySelect.value = currentVal;
   }
 
-  if (!usingSupabase) updateBarangays();
+  if (!usingSupabase) render();
 }
 
 async function loadSelectedProvince() {
@@ -550,18 +498,13 @@ async function loadLiveMunicipality() {
   const municipality = municipalitySelect.value;
   if (!municipality) return;
   const data = await loadLiveBreakdown({ level: "barangay", province, municipality });
-  liveBarangays = data.columns || [];
-  updateBarangays();
-  await loadLiveBarangay();
-}
-
-async function loadLiveBarangay() {
-  const province = provinceSelect.value;
-  const municipality = municipalitySelect.value;
-  const barangay = barangaySelect.value;
-  if (!municipality || !barangay || barangay === "__ALL__") return;
-  const data = await loadLiveBreakdown({ level: "precinct", province, municipality, barangay });
-  applyLiveElectionReturnBreakdown(province, municipality, barangay, data);
+  const returns = await Promise.all(
+    (data.columns || []).map(async (barangay) => ({
+      barangay,
+      data: await loadLiveBreakdown({ level: "precinct", province, municipality, barangay }),
+    })),
+  );
+  applyLiveElectionReturnBreakdown(province, municipality, returns);
   render();
 }
 
@@ -627,15 +570,8 @@ provinceSelect?.addEventListener("change", () => {
 
 municipalitySelect?.addEventListener("change", () => {
   if (usingSupabase) loadLiveMunicipality().catch((error) => { message.textContent = error.message; });
-  else updateBarangays();
-  showToast(`Municipality set to ${municipalitySelect.value}.`, "info");
-});
-
-barangaySelect?.addEventListener("change", () => {
-  if (usingSupabase) loadLiveBarangay().catch((error) => { message.textContent = error.message; });
   else render();
-  const bName = barangaySelect.value === "__ALL__" ? "All Barangays" : barangaySelect.value;
-  showToast(`Barangay set to ${bName}.`, "info");
+  showToast(`Municipality set to ${municipalitySelect.value}.`, "info");
 });
 
 searchInput?.addEventListener("input", (e) => {
@@ -651,9 +587,9 @@ copyBtn?.addEventListener("click", () => {
   const activeMuni = getActiveMunicipality();
   const prov = provinceSelect.value.toUpperCase();
   const muni = activeMuni?.municipality || "";
-  const brgy = barangaySelect?.value || "";
+  const barangayCount = activeMuni?.barangays?.length || 0;
 
-  const summary = `BARMM 2026 Election Returns Breakdown\nProvince: ${prov}\nMunicipality: ${muni}\nBarangay: ${brgy}\nGenerated from official COMELEC JSON returns snapshot.`;
+  const summary = `BARMM 2026 Election Returns Breakdown\nProvince: ${prov}\nMunicipality: ${muni}\nBarangays: All ${barangayCount}\nGenerated from official COMELEC JSON returns snapshot.`;
   if (navigator.clipboard) {
     navigator.clipboard.writeText(summary).then(() => {
       showToast("Election return summary copied to clipboard!", "success");
