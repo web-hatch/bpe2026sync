@@ -127,7 +127,7 @@ function friendlySector(contestName) {
   if (upper.includes("SETTLER")) return "Settler Communities";
   if (upper.includes("WOMEN")) return "Women";
   if (upper.includes("YOUTH")) return "Youth";
-  if (upper.includes("ULAMA")) return "The Ulama";
+  if (upper.includes("ULAMA")) return "Ulama";
   if (upper.includes("TRADITIONAL LEADERS")) return "Traditional Leaders";
   return contestName;
 }
@@ -138,25 +138,69 @@ function districtOrder(contestName) {
   return match ? (words[match[1]] || Number(match[1])) : 999;
 }
 
+function toProperCase(str) {
+  if (!str) return "";
+  const map = {
+    "BASILAN": "Basilan",
+    "LANAO DEL SUR": "Lanao del Sur",
+    "MAGUINDANAO DEL NORTE": "Maguindanao del Norte",
+    "MAGUINDANAO DEL SUR": "Maguindanao del Sur",
+    "SPECIAL GEOGRAPHIC AREA": "Special Geographic Area",
+    "TAWI-TAWI": "Tawi — Tawi",
+    "TAWI — TAWI": "Tawi — Tawi",
+    "TAWI - TAWI": "Tawi — Tawi",
+    "TAWI": "Tawi",
+    "CITY OF COTABATO": "City of Cotabato",
+    "COTABATO CITY": "Cotabato City",
+    "SGA": "Special Geographic Area"
+  };
+  const upper = str.trim().toUpperCase();
+  if (map[upper]) return map[upper];
+  const res = str.toLowerCase().replace(/\b([a-z])/g, (m, ch, offset, full) => {
+    const word = full.slice(offset).split(/[\s-]/)[0];
+    if (offset > 0 && ["del", "de", "ng", "of", "and", "the", "in"].includes(word)) {
+      return ch;
+    }
+    return ch.toUpperCase();
+  });
+  return res.replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
+}
+
 function formatDistrictTitle(contestName, suffix = "") {
-  const match = contestName.match(/BARMM\s*-\s*([^-]+)\s*-\s*([^-\n]+)/i);
-  if (match) {
-    const province = match[1].trim();
-    const district = match[2].trim()
-      .replace(/PARLIAMENTARY DISTRICT/i, "District")
-      .replace(/FIRST/i, "1st")
-      .replace(/SECOND/i, "2nd")
-      .replace(/THIRD/i, "3rd")
-      .replace(/FOURTH/i, "4th")
-      .replace(/FIFTH/i, "5th")
-      .replace(/SIXTH/i, "6th")
-      .replace(/SEVENTH/i, "7th")
-      .replace(/EIGHTH/i, "8th")
-      .replace(/NINTH/i, "9th");
-    const end = suffix ? ` ${suffix}` : "";
-    return `${province} — ${district}${end}`;
+  let normalized = contestName.replace(/TAWI\s*[-—]\s*TAWI/gi, "Tawi — Tawi");
+  normalized = normalized.replace(/^.*?BARMM\s*-\s*/i, "");
+  const parts = normalized.split(/\s+-\s+/);
+  let province = "";
+  let district = "";
+  if (parts.length >= 2) {
+    province = toProperCase(parts[0].trim());
+    district = parts.slice(1).join(" — ").trim();
+  } else {
+    const match = normalized.match(/([^-]+)\s*-\s*([^\n]+)/);
+    if (match) {
+      province = toProperCase(match[1].trim());
+      district = match[2].trim();
+    } else {
+      return (toProperCase(normalized) + (suffix ? ` ${suffix}` : "")).replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
+    }
   }
-  return contestName + (suffix ? ` ${suffix}` : "");
+
+  district = district
+    .replace(/PARLIAMENTARY DISTRICT/i, "District")
+    .replace(/FIRST/i, "1st")
+    .replace(/SECOND/i, "2nd")
+    .replace(/THIRD/i, "3rd")
+    .replace(/FOURTH/i, "4th")
+    .replace(/FIFTH/i, "5th")
+    .replace(/SIXTH/i, "6th")
+    .replace(/SEVENTH/i, "7th")
+    .replace(/EIGHTH/i, "8th")
+    .replace(/NINTH/i, "9th")
+    .replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
+
+  const end = suffix ? ` ${suffix}` : "";
+  let formatted = `${province} — ${district}${end}`;
+  return formatted.replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
 }
 
 function formatContestTitleHtml(title, categoryKey) {
@@ -189,7 +233,7 @@ function getActiveMunicipality() {
   return prov?.municipalities?.find((m) => m.municipality === municipalitySelect.value);
 }
 
-// Builds standalone .group-card for each category/sector with smooth scroll and rank badges
+// Builds standalone .group-card for each category/sector with ballot-number badges.
 function makeTableCard(title, categoryKey, rows, barangays, sectorTagText) {
   const query = searchQuery.trim().toLowerCase();
   const filteredRows = query
@@ -216,7 +260,7 @@ function makeTableCard(title, categoryKey, rows, barangays, sectorTagText) {
   const totalVotesInGroup = filteredRows.reduce((sum, r) => sum + (Number(r.total) || 0), 0);
   const cardCatClass = categoryKey === "party_list" ? "group-party" : categoryKey === "district" ? "group-district" : "group-sectoral";
   const avatarIcon = categoryKey === "party_list" ? '<i data-lucide="landmark"></i>' : categoryKey === "district" ? '<i data-lucide="map-pin"></i>' : '<i data-lucide="users"></i>';
-  const tagText = categoryKey === "party_list" ? "POLITICAL PARTY" : categoryKey === "district" ? "DISTRICT" : (sectorTagText ? sectorTagText.toUpperCase() : "SECTOR");
+  const tagText = categoryKey === "party_list" ? "POLITICAL PARTY" : categoryKey === "district" ? "DISTRICT REPRESENTATIVE" : (sectorTagText ? sectorTagText.toUpperCase() : "SECTORAL");
   const tagClass = categoryKey === "party_list" ? "party-tag" : categoryKey === "district" ? "district-tag" : "sector-tag";
 
   const card = document.createElement("article");
@@ -306,6 +350,8 @@ function makeTableCard(title, categoryKey, rows, barangays, sectorTagText) {
     nameCell.className = "party-cell sticky-col";
 
     const rank = idx + 1;
+    const ballotOrder = Number(entry.ballot_order);
+    const ballotNumber = Number.isInteger(ballotOrder) && ballotOrder < 9999 ? ballotOrder : "-";
     let rankClass = "rank-4plus";
     if (rank === 1) rankClass = "rank-1";
     else if (rank === 2) rankClass = "rank-2";
@@ -313,7 +359,8 @@ function makeTableCard(title, categoryKey, rows, barangays, sectorTagText) {
 
     nameCell.innerHTML = `
       <div class="party-cell-flex">
-        <span class="rank-badge ${rankClass}">${rank}</span>
+        <span class="ballot-tag" title="COMELEC Ballot #${ballotNumber}">${ballotNumber}</span>
+        <span class="rank-badge ${rankClass}" title="Rank ${rank}">${rank}</span>
         <span class="candidate-name">${entry.name}</span>
       </div>
     `;
@@ -411,12 +458,6 @@ function render() {
   // Standalone Political Party card
   const partyCard = makeTableCard("Political Party Vote Breakdown", "party_list", partyRows, activeBarangays);
   content.append(partyCard);
-  const districtGroups = {};
-  districtRows.forEach((row) => { (districtGroups[row.contest_name] ||= []).push(row); });
-  Object.keys(districtGroups).sort((a, b) => districtOrder(a) - districtOrder(b) || a.localeCompare(b)).forEach((name) => {
-    const rows = districtGroups[name].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999) || a.name.localeCompare(b.name));
-    content.append(makeTableCard(formatDistrictTitle(name, "Vote Breakdown"), "district", rows, activeBarangays, "District"));
-  });
 
   // Standalone cards for each sector
   const sectorGroups = {};
@@ -449,6 +490,14 @@ function render() {
     }
   });
 
+  // District Representatives
+  const districtGroups = {};
+  districtRows.forEach((row) => { (districtGroups[row.contest_name] ||= []).push(row); });
+  Object.keys(districtGroups).sort((a, b) => districtOrder(a) - districtOrder(b) || a.localeCompare(b)).forEach((name) => {
+    const rows = districtGroups[name].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999) || a.name.localeCompare(b.name));
+    content.append(makeTableCard(formatDistrictTitle(name, "Vote Breakdown"), "district", rows, activeBarangays, "District Representative"));
+  });
+
   message.textContent = `${displayBarangayName} • ${precinctCount} clustered precinct election returns tabulated in ${activeMuni.municipality}, ${provUpper}.`;
   refreshLucideIcons();
 }
@@ -475,22 +524,142 @@ function updateMunicipalities() {
   if (!usingSupabase) render();
 }
 
-async function loadSelectedProvince() {
-  if (usingSupabase) {
-    const province = provinceSelect.value;
-    if (liveProvince !== province) {
-      const data = await loadLiveBreakdown({ level: "municipality", province });
-      liveProvince = province;
-      liveMunicipalities = data.columns || [];
-      updateMunicipalities();
+function setSkeletonLoading(isLoading) {
+  if (isLoading) {
+    if (kpiTerritoryVal) { kpiTerritoryVal.classList.add("skeleton"); kpiTerritoryVal.textContent = "..."; }
+    if (kpiBarangayVal) { kpiBarangayVal.classList.add("skeleton"); kpiBarangayVal.textContent = "..."; }
+    if (kpiPrecinctsVal) { kpiPrecinctsVal.classList.add("skeleton"); kpiPrecinctsVal.textContent = "..."; }
+    if (kpiVotesVal) { kpiVotesVal.classList.add("skeleton"); kpiVotesVal.textContent = "..."; }
+
+    if (content) {
+      content.innerHTML = `
+        <article class="group-card group-party">
+          <header class="group-card-header">
+            <div class="group-header-info">
+              <span class="group-avatar-badge skeleton"></span>
+              <div class="group-title-stack" style="width: 220px;">
+                <div class="skeleton skeleton-text" style="width: 80px; height: 16px; border-radius: 999px;"></div>
+                <div class="skeleton skeleton-text" style="width: 200px; height: 22px; margin-top: 4px; border-radius: 4px;"></div>
+              </div>
+            </div>
+            <div class="group-header-stats">
+              <span class="stat-pill skeleton" style="width: 100px; height: 28px;"></span>
+              <span class="stat-pill skeleton" style="width: 115px; height: 28px;"></span>
+            </div>
+          </header>
+          <div class="table-wrap province-table-wrap">
+            <table class="results-table province-results-table" aria-label="Loading election return data">
+              <thead>
+                <tr>
+                  <th scope="col" class="party-col sticky-col">Candidate / Party</th>
+                  <th scope="col" class="province-header-col">Barangay 1</th>
+                  <th scope="col" class="province-header-col">Barangay 2</th>
+                  <th scope="col" class="province-header-col">Barangay 3</th>
+                  <th scope="col" class="votes-column total-col-header">Total Votes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 70px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 70px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 70px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 70px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 50px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 70px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
     }
-    await loadLiveMunicipality();
-    return;
+  } else {
+    if (kpiTerritoryVal) kpiTerritoryVal.classList.remove("skeleton");
+    if (kpiBarangayVal) kpiBarangayVal.classList.remove("skeleton");
+    if (kpiPrecinctsVal) kpiPrecinctsVal.classList.remove("skeleton");
+    if (kpiVotesVal) kpiVotesVal.classList.remove("skeleton");
   }
-  const response = await fetch(`./${breakdownFiles[provinceSelect.value]}`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Unable to load the selected province breakdown.");
-  breakdown = (await response.json()).election_return_breakdown || [];
-  updateMunicipalities();
+}
+
+async function loadSelectedProvince() {
+  setSkeletonLoading(true);
+  try {
+    if (usingSupabase) {
+      const province = provinceSelect.value;
+      if (liveProvince !== province) {
+        const data = await loadLiveBreakdown({ level: "municipality", province });
+        liveProvince = province;
+        liveMunicipalities = data.columns || [];
+        updateMunicipalities();
+      }
+      await loadLiveMunicipality();
+      return;
+    }
+    const response = await fetch(`./${breakdownFiles[provinceSelect.value]}`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to load the selected province breakdown.");
+    breakdown = (await response.json()).election_return_breakdown || [];
+    updateMunicipalities();
+  } catch (err) {
+    setSkeletonLoading(false);
+    throw err;
+  }
 }
 
 async function loadLiveMunicipality() {
@@ -510,10 +679,7 @@ async function loadLiveMunicipality() {
 
 async function loadData(isManual = false) {
   if (refreshBtn) refreshBtn.disabled = true;
-  if (kpiTerritoryVal) kpiTerritoryVal.classList.add("skeleton");
-  if (kpiBarangayVal) kpiBarangayVal.classList.add("skeleton");
-  if (kpiPrecinctsVal) kpiPrecinctsVal.classList.add("skeleton");
-  if (kpiVotesVal) kpiVotesVal.classList.add("skeleton");
+  setSkeletonLoading(true);
 
   try {
     const loaded = await loadDashboardSnapshot();
@@ -555,6 +721,7 @@ async function loadData(isManual = false) {
       showToast("Election returns snapshot reloaded successfully.", "success");
     }
   } catch (error) {
+    setSkeletonLoading(false);
     message.textContent = error.message || "Unable to load election returns.";
     showToast(error.message || "Failed to load snapshot.", "error");
   } finally {

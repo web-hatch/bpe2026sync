@@ -47,23 +47,65 @@ let isProvinceBreakdown = false;
 // ==========================================================================
 // Helper functions for Contest Titles & Groups
 // ==========================================================================
+function toProperCase(str) {
+  if (!str) return "";
+  const map = {
+    "BASILAN": "Basilan",
+    "LANAO DEL SUR": "Lanao del Sur",
+    "MAGUINDANAO DEL NORTE": "Maguindanao del Norte",
+    "MAGUINDANAO DEL SUR": "Maguindanao del Sur",
+    "SPECIAL GEOGRAPHIC AREA": "Special Geographic Area",
+    "TAWI-TAWI": "Tawi — Tawi",
+    "TAWI — TAWI": "Tawi — Tawi",
+    "TAWI - TAWI": "Tawi — Tawi",
+    "TAWI": "Tawi",
+    "CITY OF COTABATO": "City of Cotabato",
+    "COTABATO CITY": "Cotabato City",
+    "SGA": "Special Geographic Area"
+  };
+  const upper = str.trim().toUpperCase();
+  if (map[upper]) return map[upper];
+  const res = str.toLowerCase().replace(/\b([a-z])/g, (m, ch, offset, full) => {
+    const word = full.slice(offset).split(/[\s-]/)[0];
+    if (offset > 0 && ["del", "de", "ng", "of", "and", "the", "in"].includes(word)) {
+      return ch;
+    }
+    return ch.toUpperCase();
+  });
+  return res.replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
+}
+
 function getFriendlyContestName(contestName, categoryKey) {
   if (categoryKey === "party_list" || contestName.includes("REGIONAL PARLIAMENTARY POLITICAL PARTY")) {
     return "Regional Parliamentary Political Party";
   }
 
   // Sectoral mapping
-  if (contestName.includes("ULAMA")) return "The Ulama";
+  if (contestName.includes("ULAMA")) return "Ulama";
   if (contestName.includes("YOUTH")) return "Youth";
   if (contestName.includes("WOMEN")) return "Women";
   if (contestName.includes("TRADITIONAL LEADERS")) return "Traditional Leaders";
   if (contestName.includes("SETTLER COMMUNITIES")) return "Settler Communities";
 
   // District mapping
-  const districtMatch = contestName.match(/BARMM\s*-\s*([^-]+)\s*-\s*([^-\n]+)/i);
-  if (districtMatch) {
-    const province = districtMatch[1].trim();
-    const district = districtMatch[2].trim()
+  let normalized = contestName.replace(/TAWI\s*[-—]\s*TAWI/gi, "Tawi — Tawi");
+  normalized = normalized.replace(/^.*?BARMM\s*-\s*/i, "");
+  const parts = normalized.split(/\s+-\s+/);
+  let province = "";
+  let district = "";
+  if (parts.length >= 2) {
+    province = toProperCase(parts[0].trim());
+    district = parts.slice(1).join(" — ").trim();
+  } else {
+    const districtMatch = normalized.match(/([^-]+)\s*-\s*([^\n]+)/);
+    if (districtMatch) {
+      province = toProperCase(districtMatch[1].trim());
+      district = districtMatch[2].trim();
+    }
+  }
+
+  if (province && district) {
+    district = district
       .replace(/PARLIAMENTARY DISTRICT/i, "District")
       .replace(/FIRST/i, "1st")
       .replace(/SECOND/i, "2nd")
@@ -73,17 +115,19 @@ function getFriendlyContestName(contestName, categoryKey) {
       .replace(/SIXTH/i, "6th")
       .replace(/SEVENTH/i, "7th")
       .replace(/EIGHTH/i, "8th")
-      .replace(/NINTH/i, "9th");
-    return `${province} — ${district}`;
+      .replace(/NINTH/i, "9th")
+      .replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
+    let formatted = `${province} — ${district}`;
+    return formatted.replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
   }
 
-  return contestName;
+  return contestName.replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
 }
 
 function getContestTag(contestName, categoryKey) {
   if (categoryKey === "party_list") return { text: "Political Party", className: "party-tag" };
-  if (categoryKey === "sectoral") return { text: "Sector", className: "sector-tag" };
-  return { text: "District", className: "district-tag" };
+  if (categoryKey === "sectoral") return { text: "Sectoral", className: "sector-tag" };
+  return { text: "District Representative", className: "district-tag" };
 }
 
 function formatContestTitleHtml(title, categoryKey) {
@@ -157,32 +201,75 @@ function setSkeletonLoading(isLoading) {
     });
 
     if (groupsContainer) {
+      const rowSkeleton = `
+        <tr class="skeleton-row">
+          <td class="ballot-col">
+            <span class="skeleton" style="width: 32px; height: 28px; border-radius: 8px;"></span>
+          </td>
+          <td class="rank-col">
+            <span class="skeleton" style="width: 28px; height: 28px; border-radius: 50%;"></span>
+          </td>
+          <td class="party-cell">
+            <span class="skeleton" style="width: 150px; height: 16px; border-radius: 4px; margin-bottom: 5px;"></span>
+            <span class="skeleton" style="width: 90px; height: 12px; border-radius: 4px;"></span>
+          </td>
+          <td class="share-col">
+            <div class="share-cell">
+              <span class="skeleton" style="width: 45px; height: 14px; border-radius: 4px; margin-bottom: 5px;"></span>
+              <div class="skeleton" style="width: 120px; height: 8px; border-radius: 999px;"></div>
+            </div>
+          </td>
+          <td class="votes-column vote-total">
+            <span class="skeleton" style="width: 85px; height: 18px; border-radius: 4px; margin-left: auto; margin-bottom: 5px;"></span>
+            <span class="skeleton" style="width: 105px; height: 12px; border-radius: 4px; margin-left: auto;"></span>
+          </td>
+        </tr>
+      `;
+
       groupsContainer.innerHTML = `
-        <article class="group-card group-sectoral">
+        <article class="group-card group-party">
           <header class="group-card-header">
             <div class="group-header-info">
               <span class="group-avatar-badge skeleton" style="width:40px;height:40px;"></span>
-              <div class="group-title-stack" style="width:200px;">
-                <div class="skeleton skeleton-text" style="width:60px;height:16px;"></div>
-                <div class="skeleton skeleton-text" style="width:180px;height:24px;margin-top:4px;"></div>
+              <div class="group-title-stack" style="width:240px;">
+                <span class="skeleton" style="width:90px;height:16px;border-radius:999px;"></span>
+                <span class="skeleton" style="width:210px;height:22px;margin-top:5px;border-radius:4px;"></span>
               </div>
             </div>
             <div class="group-header-stats">
-              <span class="skeleton stat-pill" style="width:90px;height:26px;"></span>
-              <span class="skeleton stat-pill" style="width:110px;height:26px;"></span>
+              <span class="skeleton stat-pill" style="width:95px;height:28px;"></span>
+              <span class="skeleton stat-pill" style="width:120px;height:28px;"></span>
             </div>
           </header>
           <div class="table-wrap">
-            <table class="results-table">
+            <table class="results-table" aria-label="Loading election results">
+              <thead>
+                <tr>
+                  <th scope="col" class="ballot-col">NO.</th>
+                  <th scope="col" class="rank-col">RANK</th>
+                  <th scope="col" class="party-col">CANDIDATE</th>
+                  <th scope="col" class="share-col">VOTE SHARE</th>
+                  <th scope="col" class="votes-column">TOTAL VOTES</th>
+                </tr>
+              </thead>
               <tbody>
-                <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
-                <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
-                <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
+                ${rowSkeleton}
+                ${rowSkeleton}
+                ${rowSkeleton}
+                ${rowSkeleton}
+                ${rowSkeleton}
               </tbody>
             </table>
           </div>
         </article>
       `;
+    }
+    let catLabel = "All Contests";
+    if (currentCategory === "party_list") catLabel = "Political Party";
+    else if (currentCategory === "district") catLabel = "District Representatives";
+    else if (currentCategory === "sectoral") catLabel = "Sectoral Representatives";
+    if (resultTitle) {
+      resultTitle.textContent = `${catLabel} Vote Totals`;
     }
     resultMessage.textContent = "Loading official returns snapshot...";
   } else {
@@ -227,6 +314,37 @@ const SECTOR_ORDER = [
 ];
 
 const CATEGORY_ORDER = ["party_list", "sectoral", "district"];
+const PARTY_REPRESENTATIVE_SEATS = 40;
+const PARTY_QUALIFYING_PERCENT = 2.5;
+
+function getSeatAllocation(contest) {
+  const candidates = contest.candidates || [];
+  const seats = new Map(candidates.map((candidate) => [candidate.name, 0]));
+
+  if (contest.categoryKey === "party_list") {
+    const totalValidVotes = candidates.reduce((sum, candidate) => sum + Number(candidate.votes || 0), 0);
+    const qualified = candidates.filter((candidate) => totalValidVotes > 0
+      && (Number(candidate.votes || 0) / totalValidVotes) * 100 >= PARTY_QUALIFYING_PERCENT);
+    const qualifiedVotes = qualified.reduce((sum, candidate) => sum + Number(candidate.votes || 0), 0);
+    let allocated = 0;
+
+    qualified.forEach((candidate) => {
+      const seatCount = Math.floor((Number(candidate.votes || 0) / qualifiedVotes) * PARTY_REPRESENTATIVE_SEATS);
+      seats.set(candidate.name, seatCount);
+      allocated += seatCount;
+    });
+
+    for (let index = 0; allocated < PARTY_REPRESENTATIVE_SEATS && qualified.length; index += 1, allocated += 1) {
+      const candidate = qualified[index % qualified.length];
+      seats.set(candidate.name, (seats.get(candidate.name) || 0) + 1);
+    }
+    return seats;
+  }
+
+  const sectorSeats = contest.categoryKey === "sectoral" && contest.contest_name.toUpperCase().includes("SETTLER COMMUNITIES") ? 2 : 1;
+  candidates.slice(0, sectorSeats).forEach((candidate) => seats.set(candidate.name, 1));
+  return seats;
+}
 
 function getSectorOrderIndex(contestName) {
   const upper = contestName.toUpperCase();
@@ -315,18 +433,20 @@ function renderSubfilterPills() {
       { id: "SETTLER COMMUNITIES", label: "Settler Communities" },
       { id: "WOMEN", label: "Women" },
       { id: "YOUTH", label: "Youth" },
-      { id: "ULAMA", label: "The Ulama" },
+      { id: "ULAMA", label: "Ulama" },
       { id: "TRADITIONAL LEADERS", label: "Traditional Leaders" }
     ];
   } else if (currentCategory === "district") {
-    const provinces = new Set();
+    const provinces = new Map();
     contests.forEach((c) => {
-      const match = c.contest_name.match(/BARMM\s*-\s*([^-]+)/i);
-      if (match) provinces.add(match[1].trim());
+      const provName = getDistrictProvince(c.contest_name);
+      if (provName) {
+        provinces.set(provName, toProperCase(provName));
+      }
     });
     pillOptions = [{ id: "all", label: "All Districts" }];
-    Array.from(provinces).sort().forEach((prov) => {
-      pillOptions.push({ id: prov, label: prov });
+    Array.from(provinces.entries()).sort((a, b) => a[1].localeCompare(b[1])).forEach(([provId, provLabel]) => {
+      pillOptions.push({ id: provId, label: provLabel });
     });
   }
 
@@ -362,6 +482,12 @@ function renderCurrentView() {
       });
     }
   }
+
+  // Seat projections always use the full active contest, never a search subset.
+  const seatAllocations = new Map(contests.map((contest) => [
+    `${contest.categoryKey}|${contest.contest_name}`,
+    getSeatAllocation(contest)
+  ]));
 
   // Apply search query across candidate name, party acronym, or contest title
   const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
@@ -448,6 +574,7 @@ function renderCurrentView() {
     // =======================================================================
     contests.forEach((contestGroup) => {
       const contestTotal = contestGroup.candidates.reduce((sum, cand) => sum + cand.votes, 0);
+      const seatAllocation = seatAllocations.get(`${contestGroup.categoryKey}|${contestGroup.contest_name}`);
       const tagInfo = getContestTag(contestGroup.contest_name, contestGroup.categoryKey);
 
       let cardCatClass = "group-sectoral";
@@ -491,7 +618,8 @@ function renderCurrentView() {
       table.innerHTML = `
         <thead>
           <tr>
-            <th scope="col" class="rank-col">#</th>
+            <th scope="col" class="ballot-col">No.</th>
+            <th scope="col" class="rank-col">Rank</th>
             <th scope="col" class="party-col">Candidate</th>
             <th scope="col" class="share-col">Vote Share</th>
             <th scope="col" class="votes-column">Total Votes</th>
@@ -504,7 +632,7 @@ function renderCurrentView() {
       contestGroup.candidates.forEach((cand, idx) => {
         const rank = cand.rank || (idx + 1);
         const share = contestTotal > 0 ? ((cand.votes / contestTotal) * 100).toFixed(1) : "0.0";
-        const row = createCandidateRow(cand, rank, share, contestGroup.contest_name);
+        const row = createCandidateRow(cand, rank, share, seatAllocation?.get(cand.name) || 0);
         tbody.append(row);
       });
 
@@ -527,7 +655,8 @@ function renderCurrentView() {
     table.innerHTML = `
       <thead>
         <tr>
-          <th scope="col" class="rank-col">#</th>
+          <th scope="col" class="ballot-col">No.</th>
+          <th scope="col" class="rank-col">Rank</th>
           <th scope="col" class="party-col">Candidate</th>
           <th scope="col" class="share-col">Vote Share</th>
           <th scope="col" class="votes-column">Total Votes</th>
@@ -540,7 +669,8 @@ function renderCurrentView() {
     allCandidatesFlat.forEach((cand, idx) => {
       const rank = idx + 1;
       const share = totalVotes > 0 ? ((cand.votes / totalVotes) * 100).toFixed(1) : "0.0";
-      const row = createCandidateRow(cand, rank, share, cand.contest_name);
+      const seatAllocation = seatAllocations.get(`${cand.categoryKey}|${cand.contest_name}`);
+      const row = createCandidateRow(cand, rank, share, seatAllocation?.get(cand.name) || 0);
       tbody.append(row);
     });
 
@@ -638,21 +768,35 @@ function renderProvinceBreakdown() {
   refreshLucideIcons();
 }
 
-function createCandidateRow(cand, rank, share, subtitleContest) {
+function createCandidateRow(cand, rank, share, projectedSeats) {
   const row = document.createElement("tr");
+  const ballotOrder = Number(cand.ballot_order);
+  const ballotNumber = Number.isInteger(ballotOrder) && ballotOrder < 9999 ? ballotOrder : "-";
+  const castVotes = Number(snapshot?.total_cast_votes || 0);
+  const registeredVoters = Number(snapshot?.total_registered_voters || 0);
+  const turnout = registeredVoters > 0 ? ((castVotes / registeredVoters) * 100).toFixed(1) : "0.0";
+  const erContext = `Turnout ${turnout}%`;
 
-  // Rank badge
+  // Only candidates with projected seats receive a winner-colored rank badge.
   let rankClass = "rank-4plus";
-  if (rank === 1) rankClass = "rank-1";
-  else if (rank === 2) rankClass = "rank-2";
-  else if (rank === 3) rankClass = "rank-3";
+  if (projectedSeats > 0) {
+    if (rank === 1) rankClass = "rank-1";
+    else if (rank === 2) rankClass = "rank-2";
+    else if (rank === 3) rankClass = "rank-3";
+    else rankClass = "rank-winner";
+  }
+  const seatLabel = projectedSeats === 1 ? "1 Projected Seat" : `${projectedSeats} Projected Seats`;
 
   row.innerHTML = `
+    <td class="ballot-col">
+      <span class="ballot-tag" title="COMELEC Ballot #${ballotNumber}">${ballotNumber}</span>
+    </td>
     <td class="rank-col">
-      <span class="rank-badge ${rankClass}">${rank}</span>
+      <span class="rank-badge ${rankClass}" title="Rank ${rank}">${rank}</span>
     </td>
     <td class="party-cell">
       <span class="candidate-name">${cand.name}</span>
+      <span class="candidate-subtitle">${erContext}</span>
     </td>
     <td class="share-col">
       <div class="share-cell">
@@ -664,7 +808,10 @@ function createCandidateRow(cand, rank, share, subtitleContest) {
         </div>
       </div>
     </td>
-    <td class="votes-column vote-total">${cand.votes.toLocaleString()}</td>
+    <td class="votes-column vote-total">
+      <strong class="vote-count">${cand.votes.toLocaleString()}</strong>
+      <span class="seat-count ${projectedSeats > 0 ? "seat-count-winner" : ""}">${seatLabel}</span>
+    </td>
   `;
   return row;
 }

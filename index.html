@@ -106,10 +106,10 @@
               <i data-lucide="landmark" class="tab-icon-lucide"></i> Political Party
             </button>
             <button type="button" class="tab-btn" data-cat="sectoral">
-              <i data-lucide="users" class="tab-icon-lucide"></i> Sectoral Representatives
+              <i data-lucide="users" class="tab-icon-lucide"></i> Sectoral
             </button>
             <button type="button" class="tab-btn" data-cat="district">
-              <i data-lucide="map-pin" class="tab-icon-lucide"></i> District Representatives
+              <i data-lucide="map-pin" class="tab-icon-lucide"></i> District Representative
             </button>
           </nav>
         </div>
@@ -131,7 +131,7 @@
         <div class="section-top-bar">
           <div>
             <div class="section-title-wrap">
-              <h2 id="result-title">Sectoral Representatives Vote Totals</h2>
+              <h2 id="result-title">All Contests Vote Totals</h2>
               <span id="cache-status" class="cache-status">
                 <span class="status-dot"></span> Downloaded data
               </span>
@@ -155,27 +155,126 @@
 
         <!-- Dynamic Separated Groups Container (Standalone Cards per Sector/District) -->
         <div id="groups-container" class="groups-container" aria-live="polite">
-          <div class="group-card">
+          <article class="group-card group-party">
+            <header class="group-card-header">
+              <div class="group-header-info">
+                <span class="group-avatar-badge skeleton" style="width:40px;height:40px;"></span>
+                <div class="group-title-stack" style="width:240px;">
+                  <span class="skeleton" style="width:90px;height:16px;border-radius:999px;"></span>
+                  <span class="skeleton" style="width:210px;height:22px;margin-top:5px;border-radius:4px;"></span>
+                </div>
+              </div>
+              <div class="group-header-stats">
+                <span class="skeleton stat-pill" style="width:95px;height:28px;"></span>
+                <span class="skeleton stat-pill" style="width:120px;height:28px;"></span>
+              </div>
+            </header>
             <div class="table-wrap">
-              <table class="results-table" aria-label="Election Results">
+              <table class="results-table" aria-label="Loading election results">
                 <thead>
                   <tr>
-                    <th scope="col" class="rank-col">#</th>
-                    <th scope="col" class="party-col">Candidate</th>
-                    <th scope="col" class="share-col">Vote Share</th>
-                    <th scope="col" class="votes-column">Total Votes</th>
+                    <th scope="col" class="ballot-col">NO.</th>
+                    <th scope="col" class="rank-col">RANK</th>
+                    <th scope="col" class="party-col">CANDIDATE</th>
+                    <th scope="col" class="share-col">VOTE SHARE</th>
+                    <th scope="col" class="votes-column">TOTAL VOTES</th>
                   </tr>
                 </thead>
                 <tbody id="party-list-results">
-                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
-                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
-                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
-                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
-                  <tr class="skeleton-row"><td colspan="4"><div class="skeleton-bar"></div></td></tr>
+                  <tr class="skeleton-row">
+                    <td class="ballot-col"><span class="skeleton" style="width: 32px; height: 28px; border-radius: 8px;"></span></td>
+                    <td class="rank-col"><span class="skeleton" style="width: 28px; height: 28px; border-radius: 50%;"></span></td>
+                    <td class="party-cell">
+                      <span class="skeleton" style="width: 150px; height: 16px; border-radius: 4px; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 90px; height: 12px; border-radius: 4px;"></span>
+                    </td>
+                    <td class="share-col">
+                      <div class="share-cell">
+                        <span class="skeleton" style="width: 45px; height: 14px; border-radius: 4px; margin-bottom: 5px;"></span>
+                        <div class="skeleton" style="width: 120px; height: 8px; border-radius: 999px;"></div>
+                      </div>
+                    </td>
+                    <td class="votes-column vote-total">
+                      <span class="skeleton" style="width: 85px; height: 18px; border-radius: 4px; margin-left: auto; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 105px; height: 12px; border-radius: 4px; margin-left: auto;"></span>
+                    </td>
+                  </tr>
+                  <tr class="skeleton-row">
+                    <td class="ballot-col"><span class="skeleton" style="width: 32px; height: 28px; border-radius: 8px;"></span></td>
+                    <td class="rank-col"><span class="skeleton" style="width: 28px; height: 28px; border-radius: 50%;"></span></td>
+                    <td class="party-cell">
+                      <span class="skeleton" style="width: 150px; height: 16px; border-radius: 4px; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 90px; height: 12px; border-radius: 4px;"></span>
+                    </td>
+                    <td class="share-col">
+                      <div class="share-cell">
+                        <span class="skeleton" style="width: 45px; height: 14px; border-radius: 4px; margin-bottom: 5px;"></span>
+                        <div class="skeleton" style="width: 120px; height: 8px; border-radius: 999px;"></div>
+                      </div>
+                    </td>
+                    <td class="votes-column vote-total">
+                      <span class="skeleton" style="width: 85px; height: 18px; border-radius: 4px; margin-left: auto; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 105px; height: 12px; border-radius: 4px; margin-left: auto;"></span>
+                    </td>
+                  </tr>
+                  <tr class="skeleton-row">
+                    <td class="ballot-col"><span class="skeleton" style="width: 32px; height: 28px; border-radius: 8px;"></span></td>
+                    <td class="rank-col"><span class="skeleton" style="width: 28px; height: 28px; border-radius: 50%;"></span></td>
+                    <td class="party-cell">
+                      <span class="skeleton" style="width: 150px; height: 16px; border-radius: 4px; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 90px; height: 12px; border-radius: 4px;"></span>
+                    </td>
+                    <td class="share-col">
+                      <div class="share-cell">
+                        <span class="skeleton" style="width: 45px; height: 14px; border-radius: 4px; margin-bottom: 5px;"></span>
+                        <div class="skeleton" style="width: 120px; height: 8px; border-radius: 999px;"></div>
+                      </div>
+                    </td>
+                    <td class="votes-column vote-total">
+                      <span class="skeleton" style="width: 85px; height: 18px; border-radius: 4px; margin-left: auto; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 105px; height: 12px; border-radius: 4px; margin-left: auto;"></span>
+                    </td>
+                  </tr>
+                  <tr class="skeleton-row">
+                    <td class="ballot-col"><span class="skeleton" style="width: 32px; height: 28px; border-radius: 8px;"></span></td>
+                    <td class="rank-col"><span class="skeleton" style="width: 28px; height: 28px; border-radius: 50%;"></span></td>
+                    <td class="party-cell">
+                      <span class="skeleton" style="width: 150px; height: 16px; border-radius: 4px; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 90px; height: 12px; border-radius: 4px;"></span>
+                    </td>
+                    <td class="share-col">
+                      <div class="share-cell">
+                        <span class="skeleton" style="width: 45px; height: 14px; border-radius: 4px; margin-bottom: 5px;"></span>
+                        <div class="skeleton" style="width: 120px; height: 8px; border-radius: 999px;"></div>
+                      </div>
+                    </td>
+                    <td class="votes-column vote-total">
+                      <span class="skeleton" style="width: 85px; height: 18px; border-radius: 4px; margin-left: auto; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 105px; height: 12px; border-radius: 4px; margin-left: auto;"></span>
+                    </td>
+                  </tr>
+                  <tr class="skeleton-row">
+                    <td class="ballot-col"><span class="skeleton" style="width: 32px; height: 28px; border-radius: 8px;"></span></td>
+                    <td class="rank-col"><span class="skeleton" style="width: 28px; height: 28px; border-radius: 50%;"></span></td>
+                    <td class="party-cell">
+                      <span class="skeleton" style="width: 150px; height: 16px; border-radius: 4px; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 90px; height: 12px; border-radius: 4px;"></span>
+                    </td>
+                    <td class="share-col">
+                      <div class="share-cell">
+                        <span class="skeleton" style="width: 45px; height: 14px; border-radius: 4px; margin-bottom: 5px;"></span>
+                        <div class="skeleton" style="width: 120px; height: 8px; border-radius: 999px;"></div>
+                      </div>
+                    </td>
+                    <td class="votes-column vote-total">
+                      <span class="skeleton" style="width: 85px; height: 18px; border-radius: 4px; margin-left: auto; margin-bottom: 5px;"></span>
+                      <span class="skeleton" style="width: 105px; height: 12px; border-radius: 4px; margin-left: auto;"></span>
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
-          </div>
+          </article>
         </div>
 
         <footer class="results-footer">
@@ -219,7 +318,7 @@
             </div>
             <div class="detail-item">
               <span class="detail-label">Storage Type</span>
-              <span class="detail-val">Local Static JSON (/data)</span>
+              <span class="detail-val">Supabase Live COMELEC Sync</span>
             </div>
           </div>
           <p class="modal-text">

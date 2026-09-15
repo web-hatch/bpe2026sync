@@ -9,10 +9,10 @@ const PUBLISH_INTERVAL_MINUTES = 5;
 const provinceLabels: Record<string, string> = {
   "0700000": "Basilan",
   "3600000": "Lanao del Sur",
-  "7000000": "Maguindanao del Norte",
-  "8700000": "Maguindanao del Sur",
-  "8800000": "Special Geographic Area",
-  "9900000": "Tawi-Tawi",
+  "7000000": "Tawi-Tawi",
+  "8700000": "Maguindanao del Norte",
+  "8800000": "Maguindanao del Sur",
+  "9900000": "Special Geographic Area",
 };
 
 const sourceHeaders = {

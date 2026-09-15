@@ -75,7 +75,7 @@ function friendlySector(contestName) {
   const sectors = ["SETTLER COMMUNITIES", "WOMEN", "YOUTH", "ULAMA", "TRADITIONAL LEADERS"];
   const found = sectors.find((sector) => contestName.toUpperCase().includes(sector));
   if (found) {
-    if (found === "ULAMA") return "The Ulama";
+    if (found === "ULAMA") return "Ulama";
     if (found === "WOMEN") return "Women";
     if (found === "YOUTH") return "Youth";
     if (found === "TRADITIONAL LEADERS") return "Traditional Leaders";
@@ -90,27 +90,82 @@ function districtOrder(contestName) {
   return match ? (words[match[1]] || Number(match[1])) : 999;
 }
 
+function toProperCase(str) {
+  if (!str) return "";
+  const map = {
+    "BASILAN": "Basilan",
+    "LANAO DEL SUR": "Lanao del Sur",
+    "MAGUINDANAO DEL NORTE": "Maguindanao del Norte",
+    "MAGUINDANAO DEL SUR": "Maguindanao del Sur",
+    "SPECIAL GEOGRAPHIC AREA": "Special Geographic Area",
+    "TAWI-TAWI": "Tawi — Tawi",
+    "TAWI — TAWI": "Tawi — Tawi",
+    "TAWI - TAWI": "Tawi — Tawi",
+    "TAWI": "Tawi",
+    "CITY OF COTABATO": "City of Cotabato",
+    "COTABATO CITY": "Cotabato City",
+    "SGA": "Special Geographic Area"
+  };
+  const upper = str.trim().toUpperCase();
+  if (map[upper]) return map[upper];
+  const res = str.toLowerCase().replace(/\b([a-z])/g, (m, ch, offset, full) => {
+    const word = full.slice(offset).split(/[\s-]/)[0];
+    if (offset > 0 && ["del", "de", "ng", "of", "and", "the", "in"].includes(word)) {
+      return ch;
+    }
+    return ch.toUpperCase();
+  });
+  return res.replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
+}
+
 function formatDistrictTitle(contestName) {
-  const match = contestName.match(/BARMM\s*-\s*([^-]+)\s*-\s*([^\n]+)/i);
-  if (!match) return contestName;
-  const district = match[2].trim()
+  let normalized = contestName.replace(/TAWI\s*[-—]\s*TAWI/gi, "Tawi — Tawi");
+  normalized = normalized.replace(/^.*?BARMM\s*-\s*/i, "");
+  const parts = normalized.split(/\s+-\s+/);
+  let province = "";
+  let district = "";
+  if (parts.length >= 2) {
+    province = toProperCase(parts[0].trim());
+    district = parts.slice(1).join(" — ").trim();
+  } else {
+    const match = normalized.match(/([^-]+)\s*-\s*([^\n]+)/);
+    if (match) {
+      province = toProperCase(match[1].trim());
+      district = match[2].trim();
+    } else {
+      return toProperCase(normalized).replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
+    }
+  }
+
+  district = district
     .replace(/PARLIAMENTARY DISTRICT/i, "District")
     .replace(/FIRST/i, "1st").replace(/SECOND/i, "2nd").replace(/THIRD/i, "3rd")
     .replace(/FOURTH/i, "4th").replace(/FIFTH/i, "5th").replace(/SIXTH/i, "6th")
-    .replace(/SEVENTH/i, "7th").replace(/EIGHTH/i, "8th").replace(/NINTH/i, "9th");
-  return `${match[1].trim()} - ${district}`;
+    .replace(/SEVENTH/i, "7th").replace(/EIGHTH/i, "8th").replace(/NINTH/i, "9th")
+    .replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
+
+  let formatted = `${province} — ${district}`;
+  return formatted.replace(/Tawi\s*—\s*TAWI/g, "Tawi — Tawi");
+}
+
+function formatContestTitleHtml(title, categoryKey) {
+  if (categoryKey === "district") {
+    return title.replace(/—\s*(\d+(?:st|nd|rd|th)\s+District)(.*)$/i, '— <span class="group-title-district">$1</span>$2');
+  }
+  return title;
 }
 
 function makeTableCard(title, categoryKey, rows, provinces, sectorTagText = "") {
   const query = searchQuery.trim().toLowerCase();
+  const orderedRows = [...(rows || [])].sort((a, b) => Number(b.total || 0) - Number(a.total || 0) || (a.ballot_order || 9999) - (b.ballot_order || 9999) || a.name.localeCompare(b.name));
   const filteredRows = query
-    ? rows.filter(
+    ? orderedRows.filter(
         (r) =>
           r.name.toLowerCase().includes(query) ||
           r.contest_name.toLowerCase().includes(query) ||
           friendlySector(r.contest_name).toLowerCase().includes(query)
       )
-    : rows;
+    : orderedRows;
 
   if (filteredRows.length === 0) {
     const emptyCard = document.createElement("article");
@@ -127,7 +182,7 @@ function makeTableCard(title, categoryKey, rows, provinces, sectorTagText = "") 
   const totalVotesInGroup = filteredRows.reduce((sum, r) => sum + (r.total || 0), 0);
   const cardCatClass = categoryKey === "party_list" ? "group-party" : categoryKey === "district" ? "group-district" : "group-sectoral";
   const avatarIcon = categoryKey === "party_list" ? '<i data-lucide="landmark"></i>' : categoryKey === "district" ? '<i data-lucide="map-pin"></i>' : '<i data-lucide="users"></i>';
-  const tagText = categoryKey === "party_list" ? "POLITICAL PARTY" : categoryKey === "district" ? "DISTRICT" : (sectorTagText ? sectorTagText.toUpperCase() : "SECTOR");
+  const tagText = categoryKey === "party_list" ? "POLITICAL PARTY" : categoryKey === "district" ? "DISTRICT REPRESENTATIVE" : (sectorTagText ? sectorTagText.toUpperCase() : "SECTORAL");
   const tagClass = categoryKey === "party_list" ? "party-tag" : categoryKey === "district" ? "district-tag" : "sector-tag";
 
   const card = document.createElement("article");
@@ -140,7 +195,7 @@ function makeTableCard(title, categoryKey, rows, provinces, sectorTagText = "") 
           <div class="group-badge-line">
             <span class="group-tag ${tagClass}">${tagText}</span>
           </div>
-          <h3 class="group-card-title">${title}</h3>
+          <h3 class="group-card-title">${formatContestTitleHtml(title, categoryKey)}</h3>
         </div>
       </div>
       <div class="group-header-stats">
@@ -187,6 +242,8 @@ function makeTableCard(title, categoryKey, rows, provinces, sectorTagText = "") 
     nameCell.className = "party-cell sticky-col";
 
     const rank = idx + 1;
+    const ballotOrder = Number(entry.ballot_order);
+    const ballotNumber = Number.isInteger(ballotOrder) && ballotOrder < 9999 ? ballotOrder : "-";
     let rankClass = "rank-4plus";
     if (rank === 1) rankClass = "rank-1";
     else if (rank === 2) rankClass = "rank-2";
@@ -194,7 +251,8 @@ function makeTableCard(title, categoryKey, rows, provinces, sectorTagText = "") 
 
     nameCell.innerHTML = `
       <div class="party-cell-flex">
-        <span class="rank-badge ${rankClass}">${rank}</span>
+        <span class="ballot-tag" title="COMELEC Ballot #${ballotNumber}">${ballotNumber}</span>
+        <span class="rank-badge ${rankClass}" title="Rank ${rank}">${rank}</span>
         <span class="candidate-name">${entry.name}</span>
       </div>
     `;
@@ -237,17 +295,7 @@ function renderAllTables() {
   const partyCard = makeTableCard("Political Party Vote Breakdown", "party_list", partyRows, breakdown.provinces);
   content.append(partyCard);
 
-  // 2. District Representatives, ordered by district number.
-  const districtGroups = {};
-  (breakdown.district || []).forEach((row) => { (districtGroups[row.contest_name] ||= []).push(row); });
-  Object.keys(districtGroups)
-    .sort((a, b) => districtOrder(a) - districtOrder(b) || a.localeCompare(b))
-    .forEach((name) => {
-      const rows = districtGroups[name].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999));
-      content.append(makeTableCard(`${formatDistrictTitle(name)} Vote Breakdown`, "district", rows, breakdown.provinces, "District"));
-    });
-
-  // 3. Separate Sectoral into standalone cards per sector
+  // 2. Separate Sectoral into standalone cards per sector
   const sectorGroups = {};
   const sectorOrder = ["SETTLER COMMUNITIES", "WOMEN", "YOUTH", "ULAMA", "TRADITIONAL LEADERS"];
 
@@ -278,17 +326,157 @@ function renderAllTables() {
     }
   });
 
+  // 3. District Representatives, ordered by district number.
+  const districtGroups = {};
+  (breakdown.district || []).forEach((row) => { (districtGroups[row.contest_name] ||= []).push(row); });
+  Object.keys(districtGroups)
+    .sort((a, b) => districtOrder(a) - districtOrder(b) || a.localeCompare(b))
+    .forEach((name) => {
+      const rows = districtGroups[name].sort((a, b) => (a.ballot_order || 9999) - (b.ballot_order || 9999));
+      content.append(makeTableCard(`${formatDistrictTitle(name)} Vote Breakdown`, "district", rows, breakdown.provinces, "District Representative"));
+    });
+
   refreshLucideIcons();
 }
 
+function setSkeletonLoading(isLoading) {
+  if (isLoading) {
+    if (kpiProvincesVal) { kpiProvincesVal.classList.add("skeleton"); kpiProvincesVal.textContent = "..."; }
+    if (kpiVotesVal) { kpiVotesVal.classList.add("skeleton"); kpiVotesVal.textContent = "..."; }
+    if (kpiReturnsVal) { kpiReturnsVal.classList.add("skeleton"); kpiReturnsVal.textContent = "..."; }
+    if (kpiContestsVal) { kpiContestsVal.classList.add("skeleton"); kpiContestsVal.textContent = "..."; }
+
+    if (content) {
+      content.innerHTML = `
+        <article class="group-card group-party">
+          <header class="group-card-header">
+            <div class="group-header-info">
+              <span class="group-avatar-badge skeleton"></span>
+              <div class="group-title-stack" style="width: 220px;">
+                <div class="skeleton skeleton-text" style="width: 80px; height: 16px; border-radius: 999px;"></div>
+                <div class="skeleton skeleton-text" style="width: 200px; height: 22px; margin-top: 4px; border-radius: 4px;"></div>
+              </div>
+            </div>
+            <div class="group-header-stats">
+              <span class="stat-pill skeleton" style="width: 100px; height: 28px;"></span>
+              <span class="stat-pill skeleton" style="width: 115px; height: 28px;"></span>
+            </div>
+          </header>
+          <div class="table-wrap province-table-wrap">
+            <table class="results-table province-results-table" aria-label="Loading provincial data">
+              <thead>
+                <tr>
+                  <th scope="col" class="party-col sticky-col">Candidate / Party</th>
+                  <th scope="col" class="province-header-col">Basilan</th>
+                  <th scope="col" class="province-header-col">Lanao del Sur</th>
+                  <th scope="col" class="province-header-col">Maguindanao N.</th>
+                  <th scope="col" class="province-header-col">Maguindanao S.</th>
+                  <th scope="col" class="province-header-col">SGA</th>
+                  <th scope="col" class="province-header-col">Tawi-Tawi</th>
+                  <th scope="col" class="votes-column total-col-header">Total Votes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 65px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 65px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 65px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 65px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+                <tr class="skeleton-row">
+                  <td class="party-cell sticky-col">
+                    <div class="party-cell-flex">
+                      <span class="skeleton" style="width: 30px; height: 26px; border-radius: 8px; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;"></span>
+                      <span class="skeleton" style="width: 130px; height: 16px; border-radius: 4px;"></span>
+                    </div>
+                  </td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="province-num-cell"><span class="skeleton" style="width: 48px; height: 16px; border-radius: 4px;"></span></td>
+                  <td class="votes-column vote-total highlight-total"><span class="skeleton" style="width: 65px; height: 18px; border-radius: 4px;"></span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    }
+  } else {
+    if (kpiProvincesVal) kpiProvincesVal.classList.remove("skeleton");
+    if (kpiVotesVal) kpiVotesVal.classList.remove("skeleton");
+    if (kpiReturnsVal) kpiReturnsVal.classList.remove("skeleton");
+    if (kpiContestsVal) kpiContestsVal.classList.remove("skeleton");
+  }
+}
+
 async function loadData(isManual = false) {
-  if (kpiProvincesVal) kpiProvincesVal.classList.add("skeleton");
-  if (kpiVotesVal) kpiVotesVal.classList.add("skeleton");
-  if (kpiReturnsVal) kpiReturnsVal.classList.add("skeleton");
-  if (kpiContestsVal) kpiContestsVal.classList.add("skeleton");
+  setSkeletonLoading(true);
 
   try {
     ({ snapshot: snapshotData } = await loadDashboardSnapshot());
+    setSkeletonLoading(false);
 
     const breakdown = snapshotData.province_breakdown;
     const provinces = breakdown?.provinces || [];
